@@ -9,7 +9,7 @@ interface ChatInterfaceProps {
   onHighlight: (highlight: ActiveHighlight | null) => void;
 }
 
-const citationRegex = /\[([\w\/\.-]+):(\d+)-(\d+)\]/g;
+const citationRegex = /\[source:([\w\/\.-]+):(\d+)(?:-(\d+))?\]/g;
 
 const parseContent = (text: string): (string | Citation)[] => {
   const parts: (string | Citation)[] = [];
@@ -20,10 +20,14 @@ const parseContent = (text: string): (string | Citation)[] => {
     if (match.index > lastIndex) {
       parts.push(text.substring(lastIndex, match.index));
     }
+    
+    const startLine = parseInt(match[2], 10);
+    const endLine = match[3] ? parseInt(match[3], 10) : startLine;
+
     parts.push({
       filePath: match[1],
-      startLine: parseInt(match[2], 10),
-      endLine: parseInt(match[3], 10),
+      startLine: startLine,
+      endLine: endLine,
       text: match[0],
     });
     lastIndex = match.index + match[0].length;
@@ -45,6 +49,10 @@ const ContentRenderer: React.FC<{ content: string; onHighlight: (h: ActiveHighli
           return <span key={index}>{part}</span>;
         }
         const citation = part as Citation;
+        const fileName = citation.filePath.split('/').pop() || citation.filePath;
+        const lineRange = citation.startLine === citation.endLine ? citation.startLine : `${citation.startLine}-${citation.endLine}`;
+        const displayText = `[${fileName}:${lineRange}]`;
+        
         return (
           <span
             key={index}
@@ -52,7 +60,7 @@ const ContentRenderer: React.FC<{ content: string; onHighlight: (h: ActiveHighli
             onMouseEnter={() => onHighlight({ filePath: citation.filePath, startLine: citation.startLine, endLine: citation.endLine })}
             onMouseLeave={() => onHighlight(null)}
           >
-            {citation.text}
+            {displayText}
           </span>
         );
       })}
@@ -63,7 +71,7 @@ const ContentRenderer: React.FC<{ content: string; onHighlight: (h: ActiveHighli
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, onNewQA, onHighlight }) => {
   const [question, setQuestion] = useState('');
-  const { currentAnswer, statusMessage, error, isLoading, startStream } = useRAGStream();
+  const { currentAnswer, sources, statusMessage, error, isLoading, startStream } = useRAGStream();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -71,6 +79,21 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, onNewQA, 
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [history, currentAnswer, statusMessage, error]);
+
+  useEffect(() => {
+    if (isLoading && history.length > 0) {
+      const lastQAPair = history[history.length - 1];
+      // Only call onNewQA if the streaming data is different from what's already in history
+      // to prevent an infinite re-render loop.
+      if (lastQAPair.answer !== currentAnswer || lastQAPair.sources !== sources) {
+        onNewQA({
+          ...lastQAPair,
+          answer: currentAnswer,
+          sources: sources,
+        });
+      }
+    }
+  }, [currentAnswer, sources, isLoading, history, onNewQA]);
   
   const handleAsk = () => {
     if (!question.trim() || isLoading) return;
@@ -117,7 +140,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, onNewQA, 
             
             { qa.answer && ! (index === history.length - 1 && isLoading) && (
                 <div className="flex justify-start mt-2">
-                    <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg max-w-lg prose prose-sm dark:prose-invert break-words">
+                    <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg max-w-lg prose prose-sm dark:prose-invert break-words whitespace-pre-wrap">
                         <ContentRenderer content={qa.answer} onHighlight={onHighlight} />
                     </div>
                 </div>
@@ -125,7 +148,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, onNewQA, 
              {/* Render streaming answer for the last item */}
             { index === history.length -1 && isLoading && (
                  <div className="flex justify-start mt-2">
-                    <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg max-w-lg prose prose-sm dark:prose-invert break-words">
+                    <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg max-w-lg prose prose-sm dark:prose-invert break-words whitespace-pre-wrap">
                         <ContentRenderer content={currentAnswer} onHighlight={onHighlight} />
                         {statusMessage && <span className="ml-2 text-gray-500 italic text-xs animate-pulse">{statusMessage}</span>}
                         {!statusMessage && currentAnswer && <span className="inline-block w-2 h-4 bg-gray-600 dark:bg-gray-400 animate-pulse ml-1"></span>}

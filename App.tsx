@@ -21,16 +21,16 @@ function App() {
       return [...prev, qaPair];
     });
     
-    // Set sources only when the final answer with sources is available
-    if (Object.keys(qaPair.sources).length > 0) {
-      setActiveSources(qaPair.sources);
-    }
+    // Always update sources to reflect the current state of the stream
+    setActiveSources(qaPair.sources);
     setActiveHighlight(null);
   };
   
   const handleHighlight = (highlight: ActiveHighlight | null) => {
     setActiveHighlight(highlight);
   };
+
+  const lastQA = history.length > 0 ? history[history.length - 1] : null;
 
   return (
     <div className="min-h-screen font-sans text-gray-800 dark:text-gray-200 bg-dots">
@@ -46,17 +46,18 @@ function App() {
       
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-10">
         <div className="flex flex-col md:flex-row gap-6">
-          <div className="md:w-3/5 lg:w-2/3">
+          <div className="md:w-2/5">
             <ChatInterface 
               history={history}
               onNewQA={handleNewQA}
               onHighlight={handleHighlight}
             />
           </div>
-          <div className="md:w-2/5 lg:w-1/3">
+          <div className="md:w-3/5">
             <SourceViewer
               sources={activeSources}
               highlight={activeHighlight}
+              activeAnswer={lastQA?.answer}
             />
           </div>
         </div>
