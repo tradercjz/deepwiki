@@ -3,42 +3,70 @@ import { useRAGStream } from '../hooks/useRAGStream';
 import { QAPair, RAGSource, ActiveHighlight, Citation } from '../types';
 import { SendIcon } from './icons/SendIcon';
 
-interface ChatInterfaceProps {
-  history: QAPair[];
-  onNewQA: (qaPair: QAPair) => void;
-  onHighlight: (highlight: ActiveHighlight | null) => void;
-}
-
-const citationRegex = /\[source:([\w\/\.-]+):(\d+)(?:-(\d+))?\]/g;
-
-const parseContent = (text: string): (string | Citation)[] => {
-  const parts: (string | Citation)[] = [];
+const parseContent = (text: string): (string | Citation[])[] => {
+  const contentParts: (string | Citation[])[] = [];
   let lastIndex = 0;
-  let match;
+  const citationBlockRegex = /\[(source:.+?)\]/g;
+  let blockMatch;
 
-  while ((match = citationRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push(text.substring(lastIndex, match.index));
-    }
-    
-    const startLine = parseInt(match[2], 10);
-    const endLine = match[3] ? parseInt(match[3], 10) : startLine;
+  while ((blockMatch = citationBlockRegex.exec(text)) !== null) {
+      if (blockMatch.index > lastIndex) {
+          contentParts.push(text.substring(lastIndex, blockMatch.index));
+      }
 
-    parts.push({
-      filePath: match[1],
-      startLine: startLine,
-      endLine: endLine,
-      text: match[0],
-    });
-    lastIndex = match.index + match[0].length;
+      const innerText = blockMatch[1];
+      const citationsInBlock: Citation[] = [];
+      let lastFilePath: string | null = null;
+      const citationParts = innerText.split(',');
+
+      for (const part of citationParts) {
+          const trimmedPart = part.trim();
+          const fullCitationRegex = /source:\s*([\w\/\.-]+):(\d+)(?:-(\d+))?/;
+          const rangeOnlyRegex = /^(\d+)(?:-(\d+))?$/;
+
+          let partMatch = trimmedPart.match(fullCitationRegex);
+          if (partMatch) {
+              const filePath = partMatch[1];
+              const startLine = parseInt(partMatch[2], 10);
+              const endLine = partMatch[3] ? parseInt(partMatch[3], 10) : startLine;
+              
+              citationsInBlock.push({
+                  filePath,
+                  startLine,
+                  endLine,
+                  text: blockMatch[0],
+              });
+              lastFilePath = filePath;
+          } else {
+              partMatch = trimmedPart.match(rangeOnlyRegex);
+              if (partMatch && lastFilePath) {
+                  const startLine = parseInt(partMatch[1], 10);
+                  const endLine = partMatch[2] ? parseInt(partMatch[2], 10) : startLine;
+
+                  citationsInBlock.push({
+                      filePath: lastFilePath,
+                      startLine,
+                      endLine,
+                      text: blockMatch[0],
+                  });
+              }
+          }
+      }
+
+      if (citationsInBlock.length > 0) {
+          contentParts.push(citationsInBlock);
+      } else {
+          contentParts.push(blockMatch[0]);
+      }
+      lastIndex = blockMatch.index + blockMatch[0].length;
   }
 
   if (lastIndex < text.length) {
-    parts.push(text.substring(lastIndex));
+      contentParts.push(text.substring(lastIndex));
   }
-
-  return parts;
+  return contentParts;
 };
+
 
 const ContentRenderer: React.FC<{ content: string; onHighlight: (h: ActiveHighlight | null) => void }> = ({ content, onHighlight }) => {
   const parts = parseContent(content);
@@ -48,19 +76,30 @@ const ContentRenderer: React.FC<{ content: string; onHighlight: (h: ActiveHighli
         if (typeof part === 'string') {
           return <span key={index}>{part}</span>;
         }
-        const citation = part as Citation;
-        const fileName = citation.filePath.split('/').pop() || citation.filePath;
-        const lineRange = citation.startLine === citation.endLine ? citation.startLine : `${citation.startLine}-${citation.endLine}`;
-        const displayText = `[${fileName}:${lineRange}]`;
         
+        const citations = part as Citation[];
+        if (citations.length === 0) return null;
+        
+        const groupedByFile = citations.reduce((acc, c) => {
+            if (!acc[c.filePath]) acc[c.filePath] = [];
+            acc[c.filePath].push(c);
+            return acc;
+        }, {} as Record<string, Citation[]>);
+
+        const displayText = Object.entries(groupedByFile).map(([filePath, fileCitations]) => {
+            const fileName = filePath.split('/').pop() || filePath;
+            const ranges = fileCitations.map(c => c.startLine === c.endLine ? c.startLine : `${c.startLine}-${c.endLine}`).join(', ');
+            return `${fileName}:${ranges}`;
+        }).join('; ');
+
         return (
           <span
             key={index}
             className="bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 font-mono text-sm px-1.5 py-0.5 rounded-md cursor-pointer transition-colors hover:bg-blue-200 dark:hover:bg-blue-800/60"
-            onMouseEnter={() => onHighlight({ filePath: citation.filePath, startLine: citation.startLine, endLine: citation.endLine })}
+            onMouseEnter={() => onHighlight(citations.map(c => ({ filePath: c.filePath, startLine: c.startLine, endLine: c.endLine })))}
             onMouseLeave={() => onHighlight(null)}
           >
-            {displayText}
+            [{displayText}]
           </span>
         );
       })}
@@ -68,6 +107,12 @@ const ContentRenderer: React.FC<{ content: string; onHighlight: (h: ActiveHighli
   );
 };
 
+// FIX: Define ChatInterfaceProps interface for component props.
+interface ChatInterfaceProps {
+  history: QAPair[];
+  onNewQA: (qaPair: QAPair) => void;
+  onHighlight: (highlight: ActiveHighlight | null) => void;
+}
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, onNewQA, onHighlight }) => {
   const [question, setQuestion] = useState('');
@@ -83,8 +128,6 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, onNewQA, 
   useEffect(() => {
     if (isLoading && history.length > 0) {
       const lastQAPair = history[history.length - 1];
-      // Only call onNewQA if the streaming data is different from what's already in history
-      // to prevent an infinite re-render loop.
       if (lastQAPair.answer !== currentAnswer || lastQAPair.sources !== sources) {
         onNewQA({
           ...lastQAPair,

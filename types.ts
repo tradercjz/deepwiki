@@ -46,8 +46,8 @@ export interface QAPair {
   sources: Record<string, RAGSource>;
 }
 
-export interface ActiveHighlight {
+export type ActiveHighlight = {
   filePath: string;
   startLine: number;
   endLine: number;
-}
+}[];

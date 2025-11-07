@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RAGSource, ActiveHighlight, Citation } from '../types';
+import { CopyIcon } from './icons/CopyIcon';
+import { CheckIcon } from './icons/CheckIcon';
 
 interface SingleSourceDisplayProps {
   source: RAGSource;
@@ -10,20 +12,33 @@ interface SingleSourceDisplayProps {
 
 const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isParentHighlighted, highlight, citations }) => {
   const [expandedGaps, setExpandedGaps] = useState<Set<number>>(new Set());
+  const [copied, setCopied] = useState(false);
   
   const lines = source.content.split('\n');
   const sourceStartLine = source.metadata?.start_line || 1;
   const sourceEndLine = sourceStartLine + lines.length - 1;
   const CONTEXT_LINES = 3;
 
+  const fullUrl = `https://github.com/tradercjz/documentation/tree/main/${source.file_path}`;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(err => {
+      console.error('Failed to copy text: ', err);
+    });
+  };
+
   const renderLine = (lineNumber: number) => {
     const lineIndex = lineNumber - sourceStartLine;
     if (lineIndex < 0 || lineIndex >= lines.length) return null;
     
-    const isLineHighlighted = highlight &&
-      highlight.filePath === source.file_path &&
-      lineNumber >= highlight.startLine &&
-      lineNumber <= highlight.endLine;
+    const isLineHighlighted = highlight?.some(h =>
+      h.filePath === source.file_path &&
+      lineNumber >= h.startLine &&
+      lineNumber <= h.endLine
+    ) ?? false;
 
     const isCited = citations.some(c => lineNumber >= c.startLine && lineNumber <= c.endLine);
 
@@ -91,12 +106,10 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
     let lastRenderedLine = sourceStartLine - 1;
 
     mergedRanges.forEach((range, rangeIndex) => {
-      // Gap before current range
       if (range.start > lastRenderedLine + 1) {
         elements.push(renderGap(lastRenderedLine + 1, range.start - 1, rangeIndex));
       }
       
-      // The visible range itself
       for (let i = range.start; i <= range.end; i++) {
         elements.push(renderLine(i));
       }
@@ -104,7 +117,6 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
       lastRenderedLine = range.end;
     });
     
-    // Gap after the last range
     if (sourceEndLine > lastRenderedLine) {
         elements.push(renderGap(lastRenderedLine + 1, sourceEndLine, mergedRanges.length));
     }
@@ -118,10 +130,19 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
       data-filepath={source.file_path}
       className={`flex flex-col bg-white dark:bg-slate-900 border rounded-lg shadow-sm transition-all duration-300 ${isParentHighlighted ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-500/50 dark:ring-blue-400/50' : 'border-gray-200 dark:border-gray-800'}`}
     >
-      <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800">
+      <div className="flex justify-between items-center px-3 py-2 border-b border-gray-200 dark:border-gray-800">
         <h3 className="font-mono text-sm font-semibold truncate text-gray-700 dark:text-gray-300" title={source.file_path}>
-          {source.file_path.split('/').pop() || source.file_path}
+          <a href={fullUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
+            {source.file_path.split('/').pop() || source.file_path}
+          </a>
         </h3>
+        <button 
+          onClick={handleCopy}
+          className="p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 rounded-md transition-colors"
+          aria-label="Copy file URL"
+        >
+          {/* {copied ? <CheckIcon /> : <CopyIcon />} */}
+        </button>
       </div>
       <div className="flex-1 overflow-x-auto p-3">
         <pre className="text-xs">
@@ -144,14 +165,14 @@ export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, 
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (highlight && containerRef.current) {
-      const fileContainer = containerRef.current.querySelector(`[data-filepath="${CSS.escape(highlight.filePath)}"]`);
+    if (highlight && highlight.length > 0 && containerRef.current) {
+      const firstHighlight = highlight[0];
+      const fileContainer = containerRef.current.querySelector(`[data-filepath="${CSS.escape(firstHighlight.filePath)}"]`);
       if (fileContainer) {
-        const lineElement = fileContainer.querySelector(`[data-line-number="${highlight.startLine}"]`);
+        const lineElement = fileContainer.querySelector(`[data-line-number="${firstHighlight.startLine}"]`);
         if (lineElement) {
           lineElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         } else {
-          // Fallback if the specific line isn't rendered (e.g., it's in a collapsed section)
           fileContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
       }
@@ -162,17 +183,47 @@ export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, 
     if (!activeAnswer) return [];
     
     const citations: Citation[] = [];
-    const citationRegex = /\[source:([\w\/\.-]+):(\d+)(?:-(\d+))?\]/g;
-    let match;
-    while ((match = citationRegex.exec(activeAnswer)) !== null) {
-      const startLine = parseInt(match[2], 10);
-      const endLine = match[3] ? parseInt(match[3], 10) : startLine;
-      citations.push({
-        filePath: match[1],
-        startLine,
-        endLine,
-        text: match[0],
-      });
+    const citationBlockRegex = /\[(source:.+?)\]/g;
+    let blockMatch;
+
+    while ((blockMatch = citationBlockRegex.exec(activeAnswer)) !== null) {
+        const innerText = blockMatch[1];
+        let lastFilePath: string | null = null;
+        const citationParts = innerText.split(',');
+
+        for (const part of citationParts) {
+            const trimmedPart = part.trim();
+            const fullCitationRegex = /source:\s*([\w\/\.-]+):(\d+)(?:-(\d+))?/;
+            const rangeOnlyRegex = /^(\d+)(?:-(\d+))?$/;
+
+            let partMatch = trimmedPart.match(fullCitationRegex);
+            if (partMatch) {
+                const filePath = partMatch[1];
+                const startLine = parseInt(partMatch[2], 10);
+                const endLine = partMatch[3] ? parseInt(partMatch[3], 10) : startLine;
+                
+                citations.push({
+                    filePath,
+                    startLine,
+                    endLine,
+                    text: blockMatch[0],
+                });
+                lastFilePath = filePath;
+            } else {
+                partMatch = trimmedPart.match(rangeOnlyRegex);
+                if (partMatch && lastFilePath) {
+                    const startLine = parseInt(partMatch[1], 10);
+                    const endLine = partMatch[2] ? parseInt(partMatch[2], 10) : startLine;
+
+                    citations.push({
+                        filePath: lastFilePath,
+                        startLine,
+                        endLine,
+                        text: blockMatch[0],
+                    });
+                }
+            }
+        }
     }
     return citations;
   }, [activeAnswer]);
@@ -210,7 +261,7 @@ export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, 
             key={source.file_path}
             source={source}
             highlight={highlight}
-            isParentHighlighted={highlight?.filePath === source.file_path}
+            isParentHighlighted={highlight?.some(h => h.filePath === source.file_path) ?? false}
             citations={sourceCitations}
           />
         );
