@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { useRAGStream } from '../hooks/useRAGStream';
 import { QAPair, RAGSource, ActiveHighlight, Citation } from '../types';
-import { SendIcon } from './icons/SendIcon';
+import { SourceViewer } from './SourceViewer';
 
 const parseContent = (text: string): (string | Citation[])[] => {
   const contentParts: (string | Citation[])[] = [];
@@ -17,45 +16,34 @@ const parseContent = (text: string): (string | Citation[])[] => {
       const innerText = blockMatch[1];
       const citationsInBlock: Citation[] = [];
       let lastFilePath: string | null = null;
-      const citationParts = innerText.split(',');
+      // This regex handles both formats: "source: path:1-2" and just "15-17" if path is known
+      const citationRegex = /(?:source:\s*)?([\w\/\.-]+):(\d+)(?:-(\d+))?|(\d+)(?:-(\d+))?/g;
+      
+      const parts = innerText.split(',').map(p => p.trim());
 
-      for (const part of citationParts) {
-          const trimmedPart = part.trim();
-          const fullCitationRegex = /source:\s*([\w\/\.-]+):(\d+)(?:-(\d+))?/;
-          const rangeOnlyRegex = /^(\d+)(?:-(\d+))?$/;
-
-          let partMatch = trimmedPart.match(fullCitationRegex);
-          if (partMatch) {
-              const filePath = partMatch[1];
-              const startLine = parseInt(partMatch[2], 10);
-              const endLine = partMatch[3] ? parseInt(partMatch[3], 10) : startLine;
-              
-              citationsInBlock.push({
-                  filePath,
-                  startLine,
-                  endLine,
-                  text: blockMatch[0],
-              });
+      for(const part of parts) {
+          const fullCitationMatch = part.match(/source:\s*([\w\/\.-]+):(\d+)(?:-(\d+))?/);
+          if (fullCitationMatch) {
+              const filePath = fullCitationMatch[1];
+              const startLine = parseInt(fullCitationMatch[2], 10);
+              const endLine = fullCitationMatch[3] ? parseInt(fullCitationMatch[3], 10) : startLine;
+              citationsInBlock.push({ filePath, startLine, endLine, text: part });
               lastFilePath = filePath;
           } else {
-              partMatch = trimmedPart.match(rangeOnlyRegex);
-              if (partMatch && lastFilePath) {
-                  const startLine = parseInt(partMatch[1], 10);
-                  const endLine = partMatch[2] ? parseInt(partMatch[2], 10) : startLine;
-
-                  citationsInBlock.push({
-                      filePath: lastFilePath,
-                      startLine,
-                      endLine,
-                      text: blockMatch[0],
-                  });
+              const rangeMatch = part.match(/(\d+)(?:-(\d+))?/);
+              if (rangeMatch && lastFilePath) {
+                   const startLine = parseInt(rangeMatch[1], 10);
+                   const endLine = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : startLine;
+                   citationsInBlock.push({ filePath: lastFilePath, startLine, endLine, text: part });
               }
           }
       }
 
+
       if (citationsInBlock.length > 0) {
           contentParts.push(citationsInBlock);
       } else {
+          // If parsing fails for some reason, push the original text to avoid losing content
           contentParts.push(blockMatch[0]);
       }
       lastIndex = blockMatch.index + blockMatch[0].length;
@@ -107,129 +95,114 @@ const ContentRenderer: React.FC<{ content: string; onHighlight: (h: ActiveHighli
   );
 };
 
-// FIX: Define ChatInterfaceProps interface for component props.
-interface ChatInterfaceProps {
-  history: QAPair[];
-  onNewQA: (qaPair: QAPair) => void;
-  onHighlight: (highlight: ActiveHighlight | null) => void;
+interface QAPairRendererProps {
+  qa: QAPair;
+  isLast: boolean;
+  streamingData: {
+    isLoading: boolean;
+    error: string | null;
+    statusMessage: string;
+  }
 }
 
-export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, onNewQA, onHighlight }) => {
-  const [question, setQuestion] = useState('');
-  const { currentAnswer, sources, statusMessage, error, isLoading, startStream } = useRAGStream();
-  const scrollRef = useRef<HTMLDivElement>(null);
+const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData }) => {
+    const leftColRef = useRef<HTMLDivElement>(null);
+    const rightColRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [history, currentAnswer, statusMessage, error]);
+    const [activeHighlight, setActiveHighlight] = useState<ActiveHighlight | null>(null);
 
-  useEffect(() => {
-    if (isLoading && history.length > 0) {
-      const lastQAPair = history[history.length - 1];
-      if (lastQAPair.answer !== currentAnswer || lastQAPair.sources !== sources) {
-        onNewQA({
-          ...lastQAPair,
-          answer: currentAnswer,
-          sources: sources,
-        });
-      }
-    }
-  }, [currentAnswer, sources, isLoading, history, onNewQA]);
-  
-  const handleAsk = () => {
-    if (!question.trim() || isLoading) return;
-    
-    const newQuestion = question.trim();
-    
-    const qaPairShell: QAPair = {
-        id: Date.now().toString(),
-        question: newQuestion,
-        answer: '',
-        sources: {}
-    };
-    onNewQA(qaPairShell);
-    setQuestion('');
+    const { isLoading, error, statusMessage } = streamingData;
+    const isStreamingThisBlock = isLast && isLoading;
 
-    startStream(newQuestion, history, (fullAnswer, sources) => {
-       const finalQAPair: QAPair = {
-        id: qaPairShell.id,
-        question: newQuestion,
-        answer: fullAnswer,
-        sources: sources,
-      };
-       onNewQA(finalQAPair);
-    });
-  };
+    useEffect(() => {
+        const setMaxHeight = () => {
+            if (leftColRef.current && rightColRef.current) {
+                const leftHeight = leftColRef.current.offsetHeight;
+                // Use maxHeight to prevent unnecessary whitespace, but allow scrolling for long content
+                rightColRef.current.style.maxHeight = `${leftHeight}px`;
+                rightColRef.current.style.height = ''; // Clear any explicit height
+            }
+        };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleAsk();
-    }
-  };
+        // This effect runs whenever the answer content changes, adjusting the maxHeight dynamically
+        if (qa.answer || isStreamingThisBlock) {
+            // Use a small timeout to allow the DOM to update before we measure its height
+            const timer = setTimeout(setMaxHeight, 50);
+            window.addEventListener('resize', setMaxHeight);
+            return () => {
+              clearTimeout(timer);
+              window.removeEventListener('resize', setMaxHeight);
+            }
+        }
+    }, [qa.answer, isStreamingThisBlock]);
 
-  return (
-    <div className="flex flex-col h-[calc(100vh-10rem)] bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm">
-      <div ref={scrollRef} className="flex-1 p-4 space-y-6 overflow-y-auto">
-        {history.map((qa, index) => (
-          <div key={qa.id}>
-            <div className="flex justify-end">
-              <div className="bg-blue-500 text-white p-3 rounded-lg max-w-lg">
-                <p>{qa.question}</p>
-              </div>
+    const showSources = Object.keys(qa.sources).length > 0;
+
+    return (
+        <div className="flex flex-col md:flex-row gap-6">
+            <div ref={leftColRef} className="md:w-2/5 flex flex-col gap-4">
+                <div className="flex justify-start">
+                    <div className="bg-blue-500 text-white p-3 rounded-lg w-full">
+                        <p>{qa.question}</p>
+                    </div>
+                </div>
+                
+                { (qa.answer || isStreamingThisBlock) && (
+                    <div className="flex justify-start mt-2">
+                        <div className="bg-white dark:bg-gray-800 p-3 rounded-lg prose prose-sm dark:prose-invert break-words whitespace-pre-wrap w-full border border-gray-200 dark:border-gray-700">
+                            <ContentRenderer content={qa.answer} onHighlight={setActiveHighlight} />
+                            {isStreamingThisBlock && statusMessage && <span className="ml-2 text-gray-500 italic text-xs animate-pulse">{statusMessage}</span>}
+                            {isStreamingThisBlock && !statusMessage && qa.answer && <span className="inline-block w-2 h-4 bg-gray-600 dark:bg-gray-400 animate-pulse ml-1"></span>}
+                        </div>
+                    </div>
+                )}
+                { isLast && error && (
+                    <div className="flex justify-start mt-2">
+                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative w-full" role="alert">
+                            <strong className="font-bold">Error: </strong>
+                            <span className="block sm:inline">{error}</span>
+                        </div>
+                    </div>
+                )}
             </div>
             
-            { qa.answer && ! (index === history.length - 1 && isLoading) && (
-                <div className="flex justify-start mt-2">
-                    <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg max-w-lg prose prose-sm dark:prose-invert break-words whitespace-pre-wrap">
-                        <ContentRenderer content={qa.answer} onHighlight={onHighlight} />
+            <div className="md:w-3/5">
+                { showSources && (
+                    <div ref={rightColRef} className="relative overflow-y-auto">
+                        <SourceViewer
+                        sources={qa.sources}
+                        highlight={activeHighlight}
+                        activeAnswer={qa.answer}
+                        />
                     </div>
-                </div>
-            )}
-             {/* Render streaming answer for the last item */}
-            { index === history.length -1 && isLoading && (
-                 <div className="flex justify-start mt-2">
-                    <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded-lg max-w-lg prose prose-sm dark:prose-invert break-words whitespace-pre-wrap">
-                        <ContentRenderer content={currentAnswer} onHighlight={onHighlight} />
-                        {statusMessage && <span className="ml-2 text-gray-500 italic text-xs animate-pulse">{statusMessage}</span>}
-                        {!statusMessage && currentAnswer && <span className="inline-block w-2 h-4 bg-gray-600 dark:bg-gray-400 animate-pulse ml-1"></span>}
-                    </div>
-                </div>
-            )}
-             { index === history.length -1 && error && (
-                <div className="flex justify-start mt-2">
-                    <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative max-w-lg" role="alert">
-                        <strong className="font-bold">Error: </strong>
-                        <span className="block sm:inline">{error}</span>
-                    </div>
-                </div>
-            )}
-          </div>
-        ))}
-      </div>
-      <div className="p-4 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-slate-900 rounded-b-lg">
-        <div className="relative">
-          <textarea
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Ask a question..."
-            disabled={isLoading}
-            rows={1}
-            className="w-full p-3 pr-12 text-gray-900 dark:text-white bg-gray-50 dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition resize-none"
-          />
-          <button
-            onClick={handleAsk}
-            disabled={isLoading || !question.trim()}
-            className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-            aria-label="Send message"
-          >
-            <SendIcon />
-          </button>
+                )}
+            </div>
         </div>
-      </div>
+    );
+};
+
+interface ChatInterfaceProps {
+  history: QAPair[];
+  streamingData: {
+    currentAnswer: string;
+    sources: Record<string, RAGSource>;
+    statusMessage: string;
+    error: string | null;
+    isLoading: boolean;
+  }
+}
+
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streamingData }) => {
+  return (
+    <div className="space-y-12">
+      {history.map((qa, index) => (
+        <QAPairRenderer
+          key={qa.id}
+          qa={qa}
+          isLast={index === history.length - 1}
+          streamingData={streamingData}
+        />
+      ))}
     </div>
   );
 };

@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RAGSource, ActiveHighlight, Citation } from '../types';
 import { CopyIcon } from './icons/CopyIcon';
@@ -11,15 +12,16 @@ interface SingleSourceDisplayProps {
 }
 
 const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isParentHighlighted, highlight, citations }) => {
-  const [expandedGaps, setExpandedGaps] = useState<Set<number>>(new Set());
+  const [expandedRanges, setExpandedRanges] = useState<Record<number, { start: number; end: number }>>({});
   const [copied, setCopied] = useState(false);
   
   const lines = source.content.split('\n');
   const sourceStartLine = source.metadata?.start_line || 1;
   const sourceEndLine = sourceStartLine + lines.length - 1;
   const CONTEXT_LINES = 3;
+  const EXPAND_AMOUNT = 10;
 
-  const fullUrl = `https://github.com/tradercjz/documentation/tree/main/${source.file_path}`;
+  const fullUrl = `https://github.com/tradercjz/documentation/${source.file_path}`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(fullUrl).then(() => {
@@ -27,6 +29,33 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
       setTimeout(() => setCopied(false), 2000);
     }).catch(err => {
       console.error('Failed to copy text: ', err);
+    });
+  };
+
+  const handleExpand = (gapIndex: number, gapStart: number, gapEnd: number, direction: 'up' | 'down') => {
+    setExpandedRanges(prev => {
+        const current = prev[gapIndex];
+        const newRanges = { ...prev };
+
+        if (!current) {
+            newRanges[gapIndex] = {
+                start: gapStart,
+                end: Math.min(gapStart + EXPAND_AMOUNT - 1, gapEnd)
+            };
+        } else {
+            if (direction === 'down') {
+                newRanges[gapIndex] = {
+                    ...current,
+                    end: Math.min(current.end + EXPAND_AMOUNT, gapEnd)
+                };
+            } else { // direction === 'up'
+                newRanges[gapIndex] = {
+                    ...current,
+                    start: Math.max(current.start - EXPAND_AMOUNT, gapStart)
+                };
+            }
+        }
+        return newRanges;
     });
   };
 
@@ -57,24 +86,59 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
   };
   
   const renderGap = (start: number, end: number, gapIndex: number) => {
-    if (expandedGaps.has(gapIndex)) {
-      const expandedLines: React.ReactNode[] = [];
-      for (let i = start; i <= end; i++) {
-        expandedLines.push(renderLine(i));
-      }
-      return expandedLines;
+    const currentRange = expandedRanges[gapIndex];
+
+    if (!currentRange) {
+        return (
+            <div key={`gap-collapsed-${gapIndex}`} className="text-center my-1 select-none">
+                <button
+                    onClick={() => handleExpand(gapIndex, start, end, 'down')}
+                    className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 rounded px-2 py-0.5"
+                >
+                    ... ({end - start + 1} lines hidden) ...
+                </button>
+            </div>
+        );
     }
+
+    const elements: React.ReactNode[] = [];
     
-    return (
-      <div key={`gap-${gapIndex}`} className="text-center my-1 select-none">
-        <button
-          onClick={() => setExpandedGaps(prev => new Set(prev).add(gapIndex))}
-          className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 rounded px-2 py-0.5"
-        >
-          ... ({end - start + 1} lines hidden) ...
-        </button>
-      </div>
-    );
+    // "Show more up" button
+    if (currentRange.start > start) {
+        const remaining = currentRange.start - start;
+        elements.push(
+            <div key={`gap-up-${gapIndex}`} className="text-center my-1 select-none">
+                <button
+                    onClick={() => handleExpand(gapIndex, start, end, 'up')}
+                    className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 rounded px-2 py-0.5"
+                >
+                    ... (show {Math.min(EXPAND_AMOUNT, remaining)} more lines) ...
+                </button>
+            </div>
+        );
+    }
+
+    // Expanded lines
+    for (let i = currentRange.start; i <= currentRange.end; i++) {
+        elements.push(renderLine(i));
+    }
+
+    // "Show more down" button
+    if (currentRange.end < end) {
+        const remaining = end - currentRange.end;
+        elements.push(
+            <div key={`gap-down-${gapIndex}`} className="text-center my-1 select-none">
+                <button
+                    onClick={() => handleExpand(gapIndex, start, end, 'down')}
+                    className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 rounded px-2 py-0.5"
+                >
+                    ... (show {Math.min(EXPAND_AMOUNT, remaining)} more lines) ...
+                </button>
+            </div>
+        );
+    }
+
+    return elements;
   };
 
   const codeContent = useMemo(() => {
@@ -123,7 +187,7 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
 
     return elements;
 
-  }, [citations, highlight, source.content, source.metadata, expandedGaps]);
+  }, [citations, highlight, source.content, source.metadata, expandedRanges]);
   
   return (
     <div
@@ -141,10 +205,10 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
           className="p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 rounded-md transition-colors"
           aria-label="Copy file URL"
         >
-          {/* {copied ? <CheckIcon /> : <CopyIcon />} */}
+          {copied ? <CheckIcon /> : <CopyIcon />}
         </button>
       </div>
-      <div className="flex-1 overflow-x-auto p-3">
+      <div className="overflow-x-auto p-3">
         <pre className="text-xs">
           <code>
             {codeContent}
@@ -167,13 +231,12 @@ export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, 
   useEffect(() => {
     if (highlight && highlight.length > 0 && containerRef.current) {
       const firstHighlight = highlight[0];
+      // containerRef is now the parent of the individual source displays
       const fileContainer = containerRef.current.querySelector(`[data-filepath="${CSS.escape(firstHighlight.filePath)}"]`);
       if (fileContainer) {
         const lineElement = fileContainer.querySelector(`[data-line-number="${firstHighlight.startLine}"]`);
         if (lineElement) {
           lineElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        } else {
-          fileContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
       }
     }
@@ -236,24 +299,22 @@ export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, 
     if (!sources || citedFilePaths.size === 0) {
       return [];
     }
-    return Object.values(sources).filter(source => citedFilePaths.has(source.file_path));
+    // Fix: Explicitly type `source` as `RAGSource` to prevent TypeScript from inferring it as `unknown`.
+    return Object.values(sources).filter((source: RAGSource) => citedFilePaths.has(source.file_path));
   }, [sources, citedFilePaths]);
 
   if (sourceList.length === 0) {
     return (
-      <div className="sticky top-20 h-[calc(100vh-10rem)] flex flex-col items-center justify-center bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm p-4 text-center">
+      <div className="h-full flex flex-col items-center justify-center bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm p-4 text-center">
         <p className="text-gray-500 dark:text-gray-400">
-          Cited documents for the current answer will appear here.
-        </p>
-         <p className="text-gray-500 dark:text-gray-400 mt-2 text-sm">
-            Hover over a citation in the answer to highlight the source.
+          Cited documents for this answer will appear here.
         </p>
       </div>
     );
   }
 
   return (
-    <div ref={containerRef} className="sticky top-20 h-[calc(100vh-10rem)] overflow-y-auto space-y-4 pb-4">
+    <div ref={containerRef} className="space-y-4">
       {sourceList.map((source: RAGSource) => {
         const sourceCitations = allCitations.filter(c => c.filePath === source.file_path);
         return (
