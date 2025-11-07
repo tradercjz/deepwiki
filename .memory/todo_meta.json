@@ -1,0 +1,27 @@
+{
+  "todos": {
+    "Coordinator": {
+      "1": {
+        "id": "1",
+        "content": "分析项目需求和技术架构",
+        "details": "确认左右分屏布局、文档引用系统、折叠展开功能、滚动联动等技术需求",
+        "status": "completed",
+        "priority": "high"
+      },
+      "2": {
+        "id": "2",
+        "content": "设计用户界面和交互逻辑",
+        "details": "创建详细的UI设计规范，包括：\n- 左右分屏布局设计（简约风格）\n- AI回答展示格式（支持markdown渲染）\n- 文档引用点击交互\n- 文档块折叠/展开机制\n- 滚动同步联动效果\n- Markdown文档支持和渲染",
+        "status": "completed",
+        "priority": "high"
+      },
+      "3": {
+        "id": "3",
+        "content": "开发交互式问答网页",
+        "details": "使用 React 开发完整的问答应用：\n- 实现左右分屏布局\n- 集成 AI 问答功能\n- 支持 Markdown 文档上传和解析\n- 开发文档引用跳转系统\n- 实现文档折叠/展开交互\n- 添加滚动联动功能\n- 优化用户体验（简约设计）",
+        "status": "completed",
+        "priority": "high"
+      }
+    }
+  }
+}

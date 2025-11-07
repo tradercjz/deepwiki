@@ -1,0 +1,21 @@
+{
+  "_source_id": 2,
+  "sources": {
+    "DeepWiki智能问答系统": {
+      "https://platform.openai.com/api-keys": {
+        "id": 1,
+        "publisher": "OpenAI",
+        "url": "https://platform.openai.com/api-keys",
+        "title": "OpenAI API Keys获取页面",
+        "info": "提供GPT-4和text-embedding-3-small模型的API密钥获取服务"
+      },
+      "https://supabase.com/": {
+        "id": 2,
+        "publisher": "Supabase",
+        "url": "https://supabase.com/",
+        "title": "Supabase项目创建平台",
+        "info": "提供Supabase项目创建和API密钥获取服务，包括项目URL、anon key和service_role key"
+      }
+    }
+  }
+}
