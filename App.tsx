@@ -1,22 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatInterface } from './components/ChatInterface';
-import { QAPair, RAGSource } from './types';
+import { QAPair, ActiveHighlight } from './types';
 import { useRAGStream } from './hooks/useRAGStream';
 import { DolphinIcon } from './components/icons/DolphinIcon';
+import { FocusOverlay } from './components/FocusOverlay';
 
 function App() {
   const [history, setHistory] = useState<QAPair[]>([]);
   const [question, setQuestion] = useState('');
   const { currentAnswer, sources, statusMessage, error, isLoading, startStream } = useRAGStream();
   const mainContentRef = useRef<HTMLDivElement>(null);
+  const [focusMode, setFocusMode] = useState<{ active: boolean; highlight: ActiveHighlight | null; citationElement: HTMLElement | null; scrollPosition: number | null }>({ active: false, highlight: null, citationElement: null, scrollPosition: null });
 
   useEffect(() => {
-    // Scroll to the bottom of the page when history or the streaming answer changes
     if (isLoading) {
-      window.scrollTo({
-        top: document.body.scrollHeight,
-        behavior: 'smooth'
-      });
+      const mainEl = mainContentRef.current;
+      if (mainEl) {
+        mainEl.scrollTop = mainEl.scrollHeight;
+      }
     }
   }, [history, currentAnswer, isLoading]);
 
@@ -66,11 +67,27 @@ function App() {
     }
   };
 
+  const handleEnterFocusMode = (highlight: ActiveHighlight, element: HTMLElement) => {
+    setFocusMode({
+      active: true,
+      highlight,
+      citationElement: element,
+      scrollPosition: mainContentRef.current?.scrollTop ?? 0,
+    });
+  };
+
+  const handleExitFocusMode = () => {
+    if (mainContentRef.current && focusMode.scrollPosition !== null) {
+      mainContentRef.current.scrollTop = focusMode.scrollPosition;
+    }
+    setFocusMode({ active: false, highlight: null, citationElement: null, scrollPosition: null });
+  };
+  
   return (
-    <div className="min-h-screen font-sans text-gray-800 dark:text-gray-200">
+    <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
       <div className="fixed inset-0 -z-10 h-full w-full bg-white bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] dark:bg-slate-950 dark:bg-[radial-gradient(#2e3c51_1px,transparent_1px)]"></div>
       
-      <header className="fixed top-0 left-0 right-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 z-10">
+      <header className="fixed top-0 left-0 right-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 z-20">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">DolphinMind</h1>
@@ -90,20 +107,25 @@ function App() {
         </div>
       </header>
       
-      <main ref={mainContentRef} className="px-4 sm:px-6 lg:px-8 pt-24 pb-48">
-          <ChatInterface 
-            history={history}
-            streamingData={{
-                currentAnswer,
-                sources,
-                statusMessage,
-                error,
-                isLoading,
-            }}
-          />
+      <main ref={mainContentRef} className="px-4 sm:px-6 lg:px-8 pt-16 flex-grow overflow-y-auto pb-48">
+          <div className="pt-8">
+            <ChatInterface 
+              history={history}
+              streamingData={{
+                  currentAnswer,
+                  sources,
+                  statusMessage,
+                  error,
+                  isLoading,
+              }}
+              onEnterFocusMode={handleEnterFocusMode}
+              isFocusModeActive={focusMode.active}
+              focusedHighlight={focusMode.highlight}
+            />
+          </div>
       </main>
 
-      <footer className="fixed bottom-0 left-0 right-0 p-4 bg-transparent">
+      <footer className="fixed bottom-0 left-0 right-0 p-4 bg-transparent z-10">
         <div className="mx-auto max-w-3xl">
           <div className="relative bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg">
             <textarea
@@ -126,6 +148,13 @@ function App() {
           </div>
         </div>
       </footer>
+      {focusMode.active && focusMode.citationElement && (
+        <FocusOverlay 
+          citationElement={focusMode.citationElement}
+          highlight={focusMode.highlight}
+          onExit={handleExitFocusMode}
+        />
+      )}
     </div>
   );
 }

@@ -1,4 +1,3 @@
-
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { RAGSource, ActiveHighlight, Citation } from '../types';
 import { CopyIcon } from './icons/CopyIcon';
@@ -103,7 +102,6 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
 
     const elements: React.ReactNode[] = [];
     
-    // "Show more up" button
     if (currentRange.start > start) {
         const remaining = currentRange.start - start;
         elements.push(
@@ -118,12 +116,10 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
         );
     }
 
-    // Expanded lines
     for (let i = currentRange.start; i <= currentRange.end; i++) {
         elements.push(renderLine(i));
     }
 
-    // "Show more down" button
     if (currentRange.end < end) {
         const remaining = end - currentRange.end;
         elements.push(
@@ -192,7 +188,10 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
   return (
     <div
       data-filepath={source.file_path}
-      className={`flex flex-col bg-white dark:bg-slate-900 border rounded-lg shadow-sm transition-all duration-300 ${isParentHighlighted ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-500/50 dark:ring-blue-400/50' : 'border-gray-200 dark:border-gray-800'}`}
+      data-focus-target="true"
+      className={`flex flex-col bg-white dark:bg-slate-900 border rounded-lg shadow-sm transition-all duration-300 ${isParentHighlighted ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-500/50 dark:ring-blue-400/50' : 'border-gray-200 dark:border-gray-800'}
+      ${isParentHighlighted ? 'z-30' : ''}
+      `}
     >
       <div className="flex justify-between items-center px-3 py-2 border-b border-gray-200 dark:border-gray-800">
         <h3 className="font-mono text-sm font-semibold truncate text-gray-700 dark:text-gray-300" title={source.file_path}>
@@ -223,15 +222,20 @@ interface SourceViewerProps {
   sources: Record<string, RAGSource> | null;
   highlight: ActiveHighlight | null;
   activeAnswer?: string;
+  isFocusModeActive?: boolean;
 }
 
-export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, activeAnswer }) => {
+export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, activeAnswer, isFocusModeActive }) => {
   const containerRef = useRef<HTMLDivElement>(null);
+  const isFocusModeActiveRef = useRef(isFocusModeActive);
 
   useEffect(() => {
-    if (highlight && highlight.length > 0 && containerRef.current) {
+    const wasFocusModeActive = isFocusModeActiveRef.current;
+    isFocusModeActiveRef.current = isFocusModeActive;
+
+    // Scroll into view only when we are ENTERING focus mode.
+    if (!wasFocusModeActive && isFocusModeActive && highlight && highlight.length > 0 && containerRef.current) {
       const firstHighlight = highlight[0];
-      // containerRef is now the parent of the individual source displays
       const fileContainer = containerRef.current.querySelector(`[data-filepath="${CSS.escape(firstHighlight.filePath)}"]`);
       if (fileContainer) {
         const lineElement = fileContainer.querySelector(`[data-line-number="${firstHighlight.startLine}"]`);
@@ -240,13 +244,14 @@ export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, 
         }
       }
     }
-  }, [highlight]);
+  }, [isFocusModeActive, highlight]);
 
   const allCitations = useMemo(() => {
-    if (!activeAnswer) return [];
+    if (!activeAnswer || !sources) return [];
     
+    const availableSourcePaths = Object.keys(sources);
     const citations: Citation[] = [];
-    const citationBlockRegex = /\[(source:.+?)\]/g;
+    const citationBlockRegex = /\[((?:source:\s*)?.+?)\]/g;
     let blockMatch;
 
     while ((blockMatch = citationBlockRegex.exec(activeAnswer)) !== null) {
@@ -256,40 +261,41 @@ export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, 
 
         for (const part of citationParts) {
             const trimmedPart = part.trim();
-            const fullCitationRegex = /source:\s*([\w\/\.-]+):(\d+)(?:-(\d+))?/;
+            const fullCitationRegex = /(?:source:\s*)?([\w\/\.-]+):(\d+)(?:-(\d+))?/;
             const rangeOnlyRegex = /^(\d+)(?:-(\d+))?$/;
 
             let partMatch = trimmedPart.match(fullCitationRegex);
             if (partMatch) {
-                const filePath = partMatch[1];
+                const parsedFilePath = partMatch[1];
                 const startLine = parseInt(partMatch[2], 10);
                 const endLine = partMatch[3] ? parseInt(partMatch[3], 10) : startLine;
                 
-                citations.push({
-                    filePath,
-                    startLine,
-                    endLine,
-                    text: blockMatch[0],
-                });
-                lastFilePath = filePath;
+                let resolvedFilePath: string | null = null;
+                if (availableSourcePaths.includes(parsedFilePath)) {
+                    resolvedFilePath = parsedFilePath;
+                } else {
+                    const matchingPaths = availableSourcePaths.filter(p => p.endsWith('/' + parsedFilePath) || p === parsedFilePath);
+                    if (matchingPaths.length > 0) {
+                        resolvedFilePath = matchingPaths[0]; 
+                    }
+                }
+
+                if (resolvedFilePath) {
+                    citations.push({ filePath: resolvedFilePath, startLine, endLine, text: part });
+                    lastFilePath = resolvedFilePath;
+                }
             } else {
                 partMatch = trimmedPart.match(rangeOnlyRegex);
                 if (partMatch && lastFilePath) {
                     const startLine = parseInt(partMatch[1], 10);
                     const endLine = partMatch[2] ? parseInt(partMatch[2], 10) : startLine;
-
-                    citations.push({
-                        filePath: lastFilePath,
-                        startLine,
-                        endLine,
-                        text: blockMatch[0],
-                    });
+                    citations.push({ filePath: lastFilePath, startLine, endLine, text: part });
                 }
             }
         }
     }
     return citations;
-  }, [activeAnswer]);
+  }, [activeAnswer, sources]);
 
   const citedFilePaths = useMemo(() => {
     return new Set(allCitations.map(c => c.filePath));
@@ -299,7 +305,6 @@ export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, 
     if (!sources || citedFilePaths.size === 0) {
       return [];
     }
-    // Fix: Explicitly type `source` as `RAGSource` to prevent TypeScript from inferring it as `unknown`.
     return Object.values(sources).filter((source: RAGSource) => citedFilePaths.has(source.file_path));
   }, [sources, citedFilePaths]);
 
@@ -317,12 +322,14 @@ export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, 
     <div ref={containerRef} className="space-y-4">
       {sourceList.map((source: RAGSource) => {
         const sourceCitations = allCitations.filter(c => c.filePath === source.file_path);
+        const isParentHighlighted = highlight?.some(h => h.filePath === source.file_path) ?? false;
+        
         return (
           <SingleSourceDisplay
             key={source.file_path}
             source={source}
             highlight={highlight}
-            isParentHighlighted={highlight?.some(h => h.filePath === source.file_path) ?? false}
+            isParentHighlighted={isParentHighlighted}
             citations={sourceCitations}
           />
         );

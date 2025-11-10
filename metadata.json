@@ -1,5 +1,5 @@
 {
-  "name": "DeepWiki RAG Chat",
+  "name": "DolphinMind",
   "description": "An AI-powered question-answering interface that provides answers grounded in source documents, displaying citations and references in real-time.",
   "requestFramePermissions": []
 }
