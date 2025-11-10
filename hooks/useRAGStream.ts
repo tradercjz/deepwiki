@@ -24,10 +24,14 @@ export const useRAGStream = () => {
     const finalSources = { current: {} };
 
     try {
-      // Per the curl example, conversation_history is an array of objects.
-      // We will only send the most recent user question as per the example.
-      // For a more advanced chat, you might send more history.
-      const conversation_history = [{ role: 'user', content: question }];
+      // Construct conversation history from previous Q&A pairs
+      const conversation_history = history.flatMap(qa => [
+        { role: 'user', content: qa.question },
+        { role: 'assistant', content: qa.answer }
+      ]);
+      
+      // Add the current user question
+      conversation_history.push({ role: 'user', content: question });
 
       const response = await fetch('http://183.134.101.139:8007/api/v1/rag/chat', {
         method: 'POST',
