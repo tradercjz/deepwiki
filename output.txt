@@ -1,0 +1,1401 @@
+===== FILE: ./types.ts =====
+
+export interface RAGStatusUpdate {
+  type: 'status';
+  message: string;
+}
+
+export interface RAGSource {
+  type: 'source';
+  file_path: string;
+  content: string;
+  score?: number;
+  metadata?: {
+    start_line: number;
+    end_line: number;
+  };
+}
+
+export interface RAGContentChunk {
+  type: 'content';
+  chunk: string;
+}
+
+export interface RAGError {
+  type: 'error';
+  detail: string;
+}
+
+export interface RAGEnd {
+  type: 'end';
+  message: string;
+}
+
+export type RAGMessage = RAGStatusUpdate | RAGSource | RAGContentChunk | RAGError | RAGEnd;
+
+export interface Citation {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  text: string;
+}
+
+export interface QAPair {
+  id: string;
+  question: string;
+  answer: string;
+  sources: Record<string, RAGSource>;
+}
+
+export type ActiveHighlight = {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+}[];
+
+
+===== FILE: ./hooks/useRAGStream.ts =====
+import { useState, useCallback, useRef } from 'react';
+import { QAPair, RAGSource } from '../types';
+
+// 后端API的基础URL，可以移到环境变量中
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
+
+export const useRAGStream = () => {
+  const [currentAnswer, setCurrentAnswer] = useState('');
+  const [sources, setSources] = useState<Record<string, RAGSource>>({});
+  const [statusMessage, setStatusMessage] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+
+  // 使用useRef来确保在回调中能访问到最新的状态
+  const onCompleteCallbackRef = useRef<(fullAnswer: string, finalSources: Record<string, RAGSource>) => void>();
+
+  const startStream = useCallback(async (
+    question: string,
+    history: QAPair[],
+    existingConversationId: string | null, // 新增参数
+    onComplete: (fullAnswer: string, finalSources: Record<string, RAGSource>, newConversationId: string) => void
+  ) => {
+    setIsLoading(true);
+    setError(null);
+    setCurrentAnswer('');
+    setSources({});
+    setStatusMessage('Initiating session...');
+    setConversationId(existingConversationId);
+
+    let finalAnswer = '';
+    const finalSources: Record<string, RAGSource> = {};
+    let finalConversationId = existingConversationId;
+
+    try {
+      // --- 关键逻辑：区分新旧对话 ---
+      if (!existingConversationId) {
+        // 1. 如果是新对话，先调用创建接口
+        const createResponse = await fetch(`${API_BASE_URL}/api/v1/rag/conversations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            initial_history: [...history, { role: 'user', content: question }]
+          })
+        });
+        if (!createResponse.ok) throw new Error('Failed to create a new conversation.');
+        
+        const { conversation_id } = await createResponse.json();
+        finalConversationId = conversation_id;
+        setConversationId(conversation_id); // 更新内部状态
+      }
+      
+      // 2. 统一调用流式聊天接口
+      const response = await fetch(`${API_BASE_URL}/api/v1/rag/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          conversation_history: [...history, { role: 'user', content: question }],
+          conversation_id: finalConversationId // 总是传入ID
+        })
+      });
+
+      if (!response.body) throw new Error('Response body is null.');
+      
+      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+      
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        const lines = value.split('\n\n').filter(line => line.startsWith('data: '));
+        for (const line of lines) {
+          const jsonStr = line.replace('data: ', '');
+          try {
+            const message = JSON.parse(jsonStr);
+            switch (message.type) {
+              case 'status':
+                setStatusMessage(message.message);
+                break;
+              case 'source':
+                finalSources[message.file_path] = message;
+                setSources(prev => ({ ...prev, [message.file_path]: message }));
+                break;
+              case 'content':
+                finalAnswer += message.chunk;
+                setCurrentAnswer(prev => prev + message.chunk);
+                break;
+              case 'error':
+                setError(message.detail);
+                break;
+              // metadata 消息现在由创建接口处理，流中不再需要
+            }
+          } catch (e) {
+            console.error('Failed to parse SSE message:', jsonStr, e);
+          }
+        }
+      }
+
+    } catch (err: any) {
+      setError(err.message || 'An unknown error occurred.');
+    } finally {
+      setIsLoading(false);
+      setStatusMessage('');
+      // 在流结束后调用完成回调，并传递最终ID
+      onComplete(finalAnswer, finalSources, finalConversationId!);
+    }
+  }, []);
+
+  return { currentAnswer, sources, statusMessage, error, isLoading, conversationId, startStream };
+};
+
+===== FILE: ./components/ChatInterface.tsx =====
+import React, { useState, useRef, useEffect } from 'react';
+import { QAPair, RAGSource, ActiveHighlight, Citation } from '../types';
+import { SourceViewer } from './SourceViewer';
+import { CopyIcon } from './icons/CopyIcon';
+import { CheckIcon } from './icons/CheckIcon';
+
+type ContentPart =
+  | { type: 'text'; content: string }
+  | { type: 'citation'; citations: Citation[] }
+  | { type: 'code'; language: string; content: string };
+
+const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, content }) => {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = () => {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(content).then(() => {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+            }).catch(err => {
+                console.error('Failed to copy code: ', err);
+            });
+        } else {
+            const textArea = document.createElement('textarea');
+            textArea.value = content;
+            textArea.style.position = 'fixed';
+            textArea.style.top = '-9999px';
+            textArea.style.left = '-9999px';
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                const successful = document.execCommand('copy');
+                if (successful) {
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                }
+            } catch (err) {
+                console.error('Fallback: Oops, unable to copy', err);
+            }
+            document.body.removeChild(textArea);
+        }
+    };
+
+    return (
+        <div className="my-4 bg-gray-100 dark:bg-slate-800 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 font-mono">
+            <div className="flex justify-between items-center px-4 py-2 bg-gray-200 dark:bg-slate-700/50">
+                <span className="text-xs font-sans text-gray-600 dark:text-gray-400">{language || 'code'}</span>
+                <button
+                    onClick={handleCopy}
+                    className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 font-sans"
+                >
+                    {copied ? <CheckIcon /> : <CopyIcon />}
+                    {copied ? 'Copied!' : 'Copy'}
+                </button>
+            </div>
+            <pre className="p-4 text-sm overflow-x-auto"><code className={`language-${language}`}>{content.trim()}</code></pre>
+        </div>
+    );
+};
+
+const parseContent = (text: string, sources: Record<string, RAGSource>): ContentPart[] => {
+  const parts: ContentPart[] = [];
+  const regex = /\[((?:source:\s*)?.+?)\]|```(\S*)\n?([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+  const availableSourcePaths = Object.keys(sources);
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: 'text', content: text.substring(lastIndex, match.index) });
+    }
+
+    if (match[1] && !match[2] && match[1].includes(':')) {
+      const innerText = match[1];
+      const citationsInBlock: Citation[] = [];
+      let lastFilePath: string | null = null;
+      
+      const citationParts = innerText.split(',').map(p => p.trim());
+
+      for(const part of citationParts) {
+          const fullCitationMatch = part.match(/(?:source:\s*)?([\w\/\.-]+):(\d+)(?:-(\d+))?/);
+          if (fullCitationMatch) {
+              const parsedFilePath = fullCitationMatch[1];
+              const startLine = parseInt(fullCitationMatch[2], 10);
+              const endLine = fullCitationMatch[3] ? parseInt(fullCitationMatch[3], 10) : startLine;
+
+              let resolvedFilePath: string | null = null;
+              if (availableSourcePaths.includes(parsedFilePath)) {
+                  resolvedFilePath = parsedFilePath;
+              } else {
+                  const matchingPaths = availableSourcePaths.filter(p => p.endsWith('/' + parsedFilePath) || p === parsedFilePath);
+                  if (matchingPaths.length > 0) {
+                      resolvedFilePath = matchingPaths[0];
+                  }
+              }
+
+              if(resolvedFilePath) {
+                citationsInBlock.push({ filePath: resolvedFilePath, startLine, endLine, text: part });
+                lastFilePath = resolvedFilePath;
+              }
+          } else {
+              const rangeMatch = part.match(/(\d+)(?:-(\d+))?/);
+              if (rangeMatch && lastFilePath) {
+                   const startLine = parseInt(rangeMatch[1], 10);
+                   const endLine = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : startLine;
+                   citationsInBlock.push({ filePath: lastFilePath, startLine, endLine, text: part });
+              }
+          }
+      }
+
+      if (citationsInBlock.length > 0) {
+          parts.push({ type: 'citation', citations: citationsInBlock });
+      } else {
+          parts.push({ type: 'text', content: match[0] });
+      }
+    } 
+    else if (match[2] !== undefined) {
+      parts.push({
+        type: 'code',
+        language: match[2],
+        content: match[3],
+      });
+    } else {
+        parts.push({ type: 'text', content: match[0] });
+    }
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ type: 'text', content: text.substring(lastIndex) });
+  }
+  return parts;
+};
+
+const ContentRenderer: React.FC<{ 
+    content: string; 
+    sources: Record<string, RAGSource>;
+    onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
+    isFocusModeActive: boolean;
+    focusedHighlight: ActiveHighlight | null;
+}> = ({ content, sources, onCitationClick, isFocusModeActive, focusedHighlight }) => {
+  const parts = parseContent(content, sources);
+
+  return (
+    <>
+      {parts.map((part, index) => {
+        switch (part.type) {
+          case 'text':
+            return <span key={index}>{part.content}</span>;
+          
+          case 'code':
+            return <CodeBlock key={index} language={part.language} content={part.content} />;
+
+          case 'citation': {
+            const citations = part.citations;
+            if (citations.length === 0) return null;
+            
+            const groupedByFile = citations.reduce((acc, c) => {
+                if (!acc[c.filePath]) acc[c.filePath] = [];
+                acc[c.filePath].push(c);
+                return acc;
+            }, {} as Record<string, Citation[]>);
+
+            const displayText = Object.entries(groupedByFile).map(([filePath, fileCitations]) => {
+                const fileName = filePath.split('/').pop() || filePath;
+                const ranges = fileCitations.map(c => c.startLine === c.endLine ? c.startLine : `${c.startLine}-${c.endLine}`).join(', ');
+                return `${fileName}:${ranges}`;
+            }).join('; ');
+
+            const highlightPayload = citations.map(c => ({ filePath: c.filePath, startLine: c.startLine, endLine: c.endLine }));
+
+            const isThisCitationFocused = isFocusModeActive && focusedHighlight && 
+              JSON.stringify(highlightPayload) === JSON.stringify(focusedHighlight);
+
+            return (
+              <span
+                key={index}
+                data-citation-payload={JSON.stringify(highlightPayload)}
+                className={`relative bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 font-mono text-sm px-1.5 py-0.5 rounded-md cursor-pointer transition-all hover:bg-blue-200 dark:hover:bg-blue-800/60 
+                  ${isThisCitationFocused ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-800' : ''}
+                  group
+                `}
+                onClick={(e) => onCitationClick(highlightPayload, e.currentTarget)}
+              >
+                [{displayText}]
+                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-700 rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 whitespace-nowrap">
+                  Click to focus
+                </span>
+              </span>
+            );
+          }
+          default:
+            return null;
+        }
+      })}
+    </>
+  );
+};
+
+interface QAPairRendererProps {
+  qa: QAPair;
+  isLast: boolean;
+  streamingData: {
+    isLoading: boolean;
+    error: string | null;
+    statusMessage: string;
+  };
+  onEnterFocusMode: (highlight: ActiveHighlight, element: HTMLElement) => void;
+  isFocusModeActive: boolean;
+  focusedHighlight: ActiveHighlight | null;
+}
+
+const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onEnterFocusMode, isFocusModeActive, focusedHighlight }) => {
+    const leftColRef = useRef<HTMLDivElement>(null);
+    const rightColRef = useRef<HTMLDivElement>(null);
+    const { isLoading, error, statusMessage } = streamingData;
+    const isStreamingThisBlock = isLast && isLoading;
+
+    useEffect(() => {
+        const setMaxHeight = () => {
+            if (leftColRef.current && rightColRef.current) {
+                const leftHeight = leftColRef.current.offsetHeight;
+                rightColRef.current.style.maxHeight = `${leftHeight}px`;
+                rightColRef.current.style.height = ''; 
+            }
+        };
+
+        if (qa.answer || isStreamingThisBlock) {
+            const timer = setTimeout(setMaxHeight, 50);
+            window.addEventListener('resize', setMaxHeight);
+            return () => {
+              clearTimeout(timer);
+              window.removeEventListener('resize', setMaxHeight);
+            }
+        }
+    }, [qa.answer, isStreamingThisBlock]);
+
+    const showSources = Object.keys(qa.sources).length > 0;
+
+    return (
+        <div className="flex flex-col md:flex-row gap-6">
+            <div ref={leftColRef} className="md:w-2/5 flex flex-col gap-4">
+                <div className="flex justify-start">
+                    <div className="bg-blue-500 text-white p-3 rounded-lg w-full">
+                        <p>{qa.question}</p>
+                    </div>
+                </div>
+                
+                { (qa.answer || isStreamingThisBlock) && (
+                    <div className="flex justify-start mt-2">
+                        <div className="bg-white dark:bg-gray-800 p-3 rounded-lg prose prose-sm dark:prose-invert break-words whitespace-pre-wrap w-full border border-gray-200 dark:border-gray-700">
+                            <ContentRenderer 
+                                content={qa.answer} 
+                                sources={qa.sources}
+                                onCitationClick={onEnterFocusMode}
+                                isFocusModeActive={isFocusModeActive}
+                                focusedHighlight={focusedHighlight}
+                            />
+                            {isStreamingThisBlock && statusMessage && <span className="ml-2 text-gray-500 italic text-xs animate-pulse">{statusMessage}</span>}
+                            {isStreamingThisBlock && !statusMessage && qa.answer && <span className="inline-block w-2 h-4 bg-gray-600 dark:bg-gray-400 animate-pulse ml-1"></span>}
+                        </div>
+                    </div>
+                )}
+                { isLast && error && (
+                    <div className="flex justify-start mt-2">
+                        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg relative w-full" role="alert">
+                            <strong className="font-bold">Error: </strong>
+                            <span className="block sm:inline">{error}</span>
+                        </div>
+                    </div>
+                )}
+            </div>
+            
+            <div className="md:w-3/5">
+                { showSources && (
+                    <div ref={rightColRef} className="relative overflow-y-auto">
+                        <SourceViewer
+                        sources={qa.sources}
+                        highlight={focusedHighlight}
+                        activeAnswer={qa.answer}
+                        isFocusModeActive={isFocusModeActive}
+                        />
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+interface ChatInterfaceProps {
+  history: QAPair[];
+  streamingData: {
+    currentAnswer: string;
+    sources: Record<string, RAGSource>;
+    statusMessage: string;
+    error: string | null;
+    isLoading: boolean;
+  };
+  onEnterFocusMode: (highlight: ActiveHighlight, element: HTMLElement) => void;
+  isFocusModeActive: boolean;
+  focusedHighlight: ActiveHighlight | null;
+}
+
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streamingData, onEnterFocusMode, isFocusModeActive, focusedHighlight }) => {
+  return (
+    <div className="space-y-12">
+      {history.map((qa, index) => (
+        <QAPairRenderer
+          key={qa.id}
+          qa={qa}
+          isLast={index === history.length - 1}
+          streamingData={streamingData}
+          onEnterFocusMode={onEnterFocusMode}
+          isFocusModeActive={isFocusModeActive}
+          focusedHighlight={focusedHighlight}
+        />
+      ))}
+    </div>
+  );
+};
+
+===== FILE: ./components/SourceViewer.tsx =====
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { RAGSource, ActiveHighlight, Citation } from '../types';
+import { CopyIcon } from './icons/CopyIcon';
+import { CheckIcon } from './icons/CheckIcon';
+
+interface SingleSourceDisplayProps {
+  source: RAGSource;
+  isParentHighlighted: boolean;
+  highlight: ActiveHighlight | null;
+  citations: Citation[];
+}
+
+const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isParentHighlighted, highlight, citations }) => {
+  const [expandedRanges, setExpandedRanges] = useState<Record<number, { start: number; end: number }>>({});
+  const [copied, setCopied] = useState(false);
+  
+  const lines = source.content.split('\n');
+  const sourceStartLine = source.metadata?.start_line || 1;
+  const sourceEndLine = sourceStartLine + lines.length - 1;
+  const CONTEXT_LINES = 3;
+  const EXPAND_AMOUNT = 10;
+
+  const fullUrl = `https://github.com/tradercjz/documentation/${source.file_path}`;
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(fullUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(err => {
+      console.error('Failed to copy text: ', err);
+    });
+  };
+
+  const handleExpand = (gapIndex: number, gapStart: number, gapEnd: number, direction: 'up' | 'down') => {
+    setExpandedRanges(prev => {
+        const current = prev[gapIndex];
+        const newRanges = { ...prev };
+
+        if (!current) {
+            newRanges[gapIndex] = {
+                start: gapStart,
+                end: Math.min(gapStart + EXPAND_AMOUNT - 1, gapEnd)
+            };
+        } else {
+            if (direction === 'down') {
+                newRanges[gapIndex] = {
+                    ...current,
+                    end: Math.min(current.end + EXPAND_AMOUNT, gapEnd)
+                };
+            } else { // direction === 'up'
+                newRanges[gapIndex] = {
+                    ...current,
+                    start: Math.max(current.start - EXPAND_AMOUNT, gapStart)
+                };
+            }
+        }
+        return newRanges;
+    });
+  };
+
+  const renderLine = (lineNumber: number) => {
+    const lineIndex = lineNumber - sourceStartLine;
+    if (lineIndex < 0 || lineIndex >= lines.length) return null;
+    
+    const isLineHighlighted = highlight?.some(h =>
+      h.filePath === source.file_path &&
+      lineNumber >= h.startLine &&
+      lineNumber <= h.endLine
+    ) ?? false;
+
+    const isCited = citations.some(c => lineNumber >= c.startLine && lineNumber <= c.endLine);
+
+    return (
+      <div
+        key={`line-${lineNumber}`}
+        data-line-number={lineNumber}
+        className={`flex gap-4 -mx-2 px-2 rounded transition-colors duration-150 ${isLineHighlighted ? 'bg-blue-100 dark:bg-blue-900/50' : isCited ? 'bg-gray-100 dark:bg-slate-800' : ''}`}
+      >
+        <span className="w-8 text-right text-gray-400 dark:text-gray-600 select-none flex-shrink-0">
+          {lineNumber}
+        </span>
+        <span className="flex-1 whitespace-pre-wrap break-words">{lines[lineIndex] || ' '}</span>
+      </div>
+    );
+  };
+  
+  const renderGap = (start: number, end: number, gapIndex: number) => {
+    const currentRange = expandedRanges[gapIndex];
+
+    if (!currentRange) {
+        return (
+            <div key={`gap-collapsed-${gapIndex}`} className="text-center my-1 select-none">
+                <button
+                    onClick={() => handleExpand(gapIndex, start, end, 'down')}
+                    className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 rounded px-2 py-0.5"
+                >
+                    ... ({end - start + 1} lines hidden) ...
+                </button>
+            </div>
+        );
+    }
+
+    const elements: React.ReactNode[] = [];
+    
+    if (currentRange.start > start) {
+        const remaining = currentRange.start - start;
+        elements.push(
+            <div key={`gap-up-${gapIndex}`} className="text-center my-1 select-none">
+                <button
+                    onClick={() => handleExpand(gapIndex, start, end, 'up')}
+                    className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 rounded px-2 py-0.5"
+                >
+                    ... (show {Math.min(EXPAND_AMOUNT, remaining)} more lines) ...
+                </button>
+            </div>
+        );
+    }
+
+    for (let i = currentRange.start; i <= currentRange.end; i++) {
+        elements.push(renderLine(i));
+    }
+
+    if (currentRange.end < end) {
+        const remaining = end - currentRange.end;
+        elements.push(
+            <div key={`gap-down-${gapIndex}`} className="text-center my-1 select-none">
+                <button
+                    onClick={() => handleExpand(gapIndex, start, end, 'down')}
+                    className="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 bg-gray-100 dark:bg-gray-800 rounded px-2 py-0.5"
+                >
+                    ... (show {Math.min(EXPAND_AMOUNT, remaining)} more lines) ...
+                </button>
+            </div>
+        );
+    }
+
+    return elements;
+  };
+
+  const codeContent = useMemo(() => {
+    if (citations.length === 0) {
+      return lines.map((_, index) => renderLine(sourceStartLine + index));
+    }
+
+    const ranges = citations.map(c => ({
+      start: Math.max(sourceStartLine, c.startLine - CONTEXT_LINES),
+      end: Math.min(sourceEndLine, c.endLine + CONTEXT_LINES)
+    }));
+
+    if (ranges.length === 0) {
+       return lines.map((_, index) => renderLine(sourceStartLine + index));
+    }
+    ranges.sort((a, b) => a.start - b.start);
+
+    const mergedRanges: {start: number; end: number}[] = [ranges[0]];
+    for (let i = 1; i < ranges.length; i++) {
+      const last = mergedRanges[mergedRanges.length - 1];
+      if (ranges[i].start <= last.end + 1) {
+        last.end = Math.max(last.end, ranges[i].end);
+      } else {
+        mergedRanges.push(ranges[i]);
+      }
+    }
+
+    const elements: React.ReactNode[] = [];
+    let lastRenderedLine = sourceStartLine - 1;
+
+    mergedRanges.forEach((range, rangeIndex) => {
+      if (range.start > lastRenderedLine + 1) {
+        elements.push(renderGap(lastRenderedLine + 1, range.start - 1, rangeIndex));
+      }
+      
+      for (let i = range.start; i <= range.end; i++) {
+        elements.push(renderLine(i));
+      }
+      
+      lastRenderedLine = range.end;
+    });
+    
+    if (sourceEndLine > lastRenderedLine) {
+        elements.push(renderGap(lastRenderedLine + 1, sourceEndLine, mergedRanges.length));
+    }
+
+    return elements;
+
+  }, [citations, highlight, source.content, source.metadata, expandedRanges]);
+  
+  return (
+    <div
+      data-filepath={source.file_path}
+      data-focus-target="true"
+      className={`flex flex-col bg-white dark:bg-slate-900 border rounded-lg shadow-sm transition-all duration-300 ${isParentHighlighted ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-500/50 dark:ring-blue-400/50' : 'border-gray-200 dark:border-gray-800'}
+      ${isParentHighlighted ? 'z-30' : ''}
+      `}
+    >
+      <div className="flex justify-between items-center px-3 py-2 border-b border-gray-200 dark:border-gray-800">
+        <h3 className="font-mono text-sm font-semibold truncate text-gray-700 dark:text-gray-300" title={source.file_path}>
+          <a href={fullUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
+            {source.file_path.split('/').pop() || source.file_path}
+          </a>
+        </h3>
+        <button 
+          onClick={handleCopy}
+          className="p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 rounded-md transition-colors"
+          aria-label="Copy file URL"
+        >
+          {copied ? <CheckIcon /> : <CopyIcon />}
+        </button>
+      </div>
+      <div className="overflow-x-auto p-3">
+        <pre className="text-xs">
+          <code>
+            {codeContent}
+          </code>
+        </pre>
+      </div>
+    </div>
+  );
+};
+
+interface SourceViewerProps {
+  sources: Record<string, RAGSource> | null;
+  highlight: ActiveHighlight | null;
+  activeAnswer?: string;
+  isFocusModeActive?: boolean;
+}
+
+export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, activeAnswer, isFocusModeActive }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const isFocusModeActiveRef = useRef(isFocusModeActive);
+
+  useEffect(() => {
+    const wasFocusModeActive = isFocusModeActiveRef.current;
+    isFocusModeActiveRef.current = isFocusModeActive;
+
+    // Scroll into view only when we are ENTERING focus mode.
+    if (!wasFocusModeActive && isFocusModeActive && highlight && highlight.length > 0 && containerRef.current) {
+      const firstHighlight = highlight[0];
+      const fileContainer = containerRef.current.querySelector(`[data-filepath="${CSS.escape(firstHighlight.filePath)}"]`);
+      if (fileContainer) {
+        const lineElement = fileContainer.querySelector(`[data-line-number="${firstHighlight.startLine}"]`);
+        if (lineElement) {
+          lineElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }
+  }, [isFocusModeActive, highlight]);
+
+  const allCitations = useMemo(() => {
+    if (!activeAnswer || !sources) return [];
+    
+    const availableSourcePaths = Object.keys(sources);
+    const citations: Citation[] = [];
+    const citationBlockRegex = /\[((?:source:\s*)?.+?)\]/g;
+    let blockMatch;
+
+    while ((blockMatch = citationBlockRegex.exec(activeAnswer)) !== null) {
+        const innerText = blockMatch[1];
+        let lastFilePath: string | null = null;
+        const citationParts = innerText.split(',');
+
+        for (const part of citationParts) {
+            const trimmedPart = part.trim();
+            const fullCitationRegex = /(?:source:\s*)?([\w\/\.-]+):(\d+)(?:-(\d+))?/;
+            const rangeOnlyRegex = /^(\d+)(?:-(\d+))?$/;
+
+            let partMatch = trimmedPart.match(fullCitationRegex);
+            if (partMatch) {
+                const parsedFilePath = partMatch[1];
+                const startLine = parseInt(partMatch[2], 10);
+                const endLine = partMatch[3] ? parseInt(partMatch[3], 10) : startLine;
+                
+                let resolvedFilePath: string | null = null;
+                if (availableSourcePaths.includes(parsedFilePath)) {
+                    resolvedFilePath = parsedFilePath;
+                } else {
+                    const matchingPaths = availableSourcePaths.filter(p => p.endsWith('/' + parsedFilePath) || p === parsedFilePath);
+                    if (matchingPaths.length > 0) {
+                        resolvedFilePath = matchingPaths[0]; 
+                    }
+                }
+
+                if (resolvedFilePath) {
+                    citations.push({ filePath: resolvedFilePath, startLine, endLine, text: part });
+                    lastFilePath = resolvedFilePath;
+                }
+            } else {
+                partMatch = trimmedPart.match(rangeOnlyRegex);
+                if (partMatch && lastFilePath) {
+                    const startLine = parseInt(partMatch[1], 10);
+                    const endLine = partMatch[2] ? parseInt(partMatch[2], 10) : startLine;
+                    citations.push({ filePath: lastFilePath, startLine, endLine, text: part });
+                }
+            }
+        }
+    }
+    return citations;
+  }, [activeAnswer, sources]);
+
+  const citedFilePaths = useMemo(() => {
+    return new Set(allCitations.map(c => c.filePath));
+  }, [allCitations]);
+
+  const sourceList = useMemo(() => {
+    if (!sources || citedFilePaths.size === 0) {
+      return [];
+    }
+    return Object.values(sources).filter((source: RAGSource) => citedFilePaths.has(source.file_path));
+  }, [sources, citedFilePaths]);
+
+  if (sourceList.length === 0) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-sm p-4 text-center">
+        <p className="text-gray-500 dark:text-gray-400">
+          Cited documents for this answer will appear here.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div ref={containerRef} className="space-y-4">
+      {sourceList.map((source: RAGSource) => {
+        const sourceCitations = allCitations.filter(c => c.filePath === source.file_path);
+        const isParentHighlighted = highlight?.some(h => h.filePath === source.file_path) ?? false;
+        
+        return (
+          <SingleSourceDisplay
+            key={source.file_path}
+            source={source}
+            highlight={highlight}
+            isParentHighlighted={isParentHighlighted}
+            citations={sourceCitations}
+          />
+        );
+      })}
+    </div>
+  );
+};
+
+===== FILE: ./components/icons/SendIcon.tsx =====
+
+import React from 'react';
+
+export const SendIcon: React.FC = () => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="20"
+    height="20"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M5 12h14" />
+    <path d="m12 5 7 7-7 7" />
+  </svg>
+);
+
+
+===== FILE: ./components/icons/CopyIcon.tsx =====
+import React from 'react';
+
+export const CopyIcon: React.FC = () => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width="16" 
+    height="16" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+  </svg>
+);
+
+===== FILE: ./components/icons/CheckIcon.tsx =====
+import React from 'react';
+
+export const CheckIcon: React.FC = () => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width="16" 
+    height="16" 
+    viewBox="0 0 24 24" 
+    fill="none" 
+    stroke="currentColor" 
+    strokeWidth="2" 
+    strokeLinecap="round" 
+    strokeLinejoin="round"
+    aria-hidden="true"
+    className="text-green-500"
+  >
+    <polyline points="20 6 9 17 4 12"></polyline>
+  </svg>
+);
+
+===== FILE: ./components/icons/DolphinIcon.tsx =====
+import React from 'react';
+
+interface DolphinIconProps {
+  className?: string;
+  size?: number;
+}
+
+export const DolphinIcon: React.FC<DolphinIconProps> = ({ className, size = 24 }) => (
+  <svg 
+    xmlns="http://www.w3.org/2000/svg" 
+    width={size} 
+    height={size} 
+    viewBox="0 0 512.001 512.001" 
+    fill="none" 
+    stroke="black" 
+    strokeWidth="15" 
+    strokeLinecap="round" 
+    strokeLinejoin="round" 
+    className={className}
+    aria-hidden="true"
+  >
+    <g>
+      <g>
+        <path d="M452.646,154.801c-11.618-5.627-13.404-13.245-13.664-14.974c3.821-44.158-33.251-68.094-34.789-69.064
+          c-37.968-24.374-81.991-37.258-127.312-37.258c-3.542,0-7.069,0.088-10.584,0.243c-4.995-5.852-16.672-17.705-34.994-25.711
+          c-22.547-9.853-59.802-15.581-109.258,13.086c-2.907,1.685-4.409,5.042-3.727,8.332c0.681,3.29,3.394,5.774,6.732,6.165
+          c5.716,0.67,23.13,4.79,27.984,14.606c2.541,5.137,1.508,11.937-3.065,20.229c-14.274,9.143-27.669,19.889-39.943,32.163
+          c-44.57,44.568-69.114,103.825-69.114,166.856c0,47.072,13.794,92.417,39.897,131.314c-3.679,11.407-14.615,47.544-21.817,94.806
+          c-0.971,6.369,2.357,12.235,8.476,14.946c2.228,0.987,4.604,1.461,6.955,1.461c4.927,0,9.743-2.082,12.839-5.887L115,472.013
+          l45.762,19.562c7.13,3.049,15.919,0.219,20.442-6.578c3.916-5.883,3.272-13.015-1.602-17.747
+          c-3.142-3.051-6.505-6.371-10.053-9.875c-19.729-19.482-46.468-45.88-72.937-62.523c-1.164-8.482-1.754-17.119-1.754-25.728
+          c0-64.168,32.45-120.895,81.796-154.651c-9.076,11.957-9.473,15.78-8.852,19.165c0.786,4.286,4.464,7.28,8.945,7.28
+          c8.483,0,33.657-2.698,57.318-11.038c13.392-4.72,24.637-10.618,33.592-17.559c3.873,8.067,7.147,16.714,7.191,16.832
+          c0.815,2.164,2.55,3.857,4.736,4.616c0.834,0.29,1.702,0.434,2.565,0.434c1.399,0,2.787-0.375,4.013-1.111
+          c25.898-15.538,34.75-39.537,37.655-51.476c28.791,0.939,65.856,4.564,87.848,16.07c20.263,10.602,35.142,13.743,45.485,9.607
+          c8.588-3.433,11.011-10.551,11.806-12.89l0.063-0.184C473.228,184.017,472.494,164.415,452.646,154.801z M147.158,25.795
+          c28.144-12.356,54.056-13.63,77.226-3.753c8.816,3.758,15.863,8.632,21.071,13.019c-31.853,3.586-58.707,14.853-75.513,23.589
+          c0.396-5.47-0.578-10.594-2.925-15.34C162.778,34.738,154.868,29.261,147.158,25.795z M158.589,468.476
+          c3.06,3.023,5.985,5.911,8.75,8.61c-0.176,0.093-0.322,0.152-0.446,0.143l-51.167-21.873c-3.207-1.369-6.922-0.449-9.119,2.251
+          l-31.444,38.658c-0.088,0.073-0.285,0.121-0.511,0.135c5.973-38.526,14.614-69.824,19.133-84.766
+          C116.891,427.301,139.79,449.914,158.589,468.476z M264.657,194.258c-0.24,0.219-0.468,0.447-0.676,0.69
+          c-19.421,19.384-55.336,27.103-75.316,29.483c7.533-9.911,20.456-24.495,25.576-29.825c11.294-4.408,23.117-7.75,35.347-9.901
+          c9.856-1.069,17.752-1.767,23.514-2.211C270.961,186.821,268.075,190.724,264.657,194.258z M285.715,214.424
+          c-1.701-3.989-3.835-8.719-6.085-13.035c3.741-4.181,8.652-10.974,11.05-19.791c4.62-0.109,11.109-0.237,17.053-0.262
+          C305.123,189.974,299.122,203.596,285.715,214.424z M454.579,188.314c-0.108,0.257-0.24,0.616-0.393,1.064
+          c-0.53,1.558-1.043,2.716-2.829,3.429c-2.616,1.048-11.022,2.272-32.461-8.945c-41.112-21.508-123.86-18.252-135.879-17.652
+          c-0.313,0.015-0.703,0.034-1.184,0.06c-11.707,0.016-23.183,1.039-34.352,2.968c-0.026,0.003-0.051,0.005-0.076,0.008
+          c-22.585,2.462-37.761,9.948-40.755,11.525c-0.258,0.107-0.493,0.221-0.735,0.365c-73.619,29.95-125.831,101.93-126.648,185.988
+          c-14.954-30.183-22.754-63.43-22.754-97.652c0-121.511,98.857-220.368,220.368-220.368c42.326,0,83.436,12.028,118.914,34.804
+        c1.266,0.81,30.962,20.24,27.59,55.169c-0.029,0.304-0.042,0.607-0.034,0.912c0.016,0.741,0.628,18.26,22.494,28.851
+        C459.514,175.463,454.633,188.184,454.579,188.314z"/>
+      </g>
+    </g>
+    <g>
+      <g>
+        <path d="M379.886,109.019c-10.735,0-19.469,8.733-19.469,19.468s8.733,19.468,19.469,19.468s19.469-8.733,19.469-19.468
+          S390.621,109.019,379.886,109.019z M379.886,132.354c-2.132,0-3.867-1.734-3.867-3.866c0-2.132,1.735-3.866,3.867-3.866
+          s3.867,1.734,3.867,3.866C383.753,130.62,382.017,132.354,379.886,132.354z"/>
+      </g>
+    </g>
+  </svg>
+);
+
+
+===== FILE: ./components/FocusOverlay.tsx =====
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { ActiveHighlight } from '../types';
+
+interface FocusOverlayProps {
+  citationElement: HTMLElement;
+  highlight: ActiveHighlight | null;
+  onExit: () => void;
+}
+
+export const FocusOverlay: React.FC<FocusOverlayProps> = ({ citationElement, highlight, onExit }) => {
+  const [linePath, setLinePath] = useState<string | null>(null);
+  const lineRef = useRef<SVGPathElement>(null);
+
+  const getSourceElement = useCallback(() => {
+    if (!highlight || highlight.length === 0) return null;
+    const { filePath, startLine } = highlight[0];
+    const fileContainer = document.querySelector(`[data-filepath="${CSS.escape(filePath)}"][data-focus-target="true"]`);
+    if (!fileContainer) return null;
+    const lineElement = fileContainer.querySelector(`[data-line-number="${startLine}"]`);
+    return lineElement || fileContainer;
+  }, [highlight]);
+
+  const updateLine = useCallback(() => {
+    const sourceElement = getSourceElement();
+    if (!citationElement || !sourceElement) {
+      setLinePath(null);
+      return;
+    }
+
+    const citationRect = citationElement.getBoundingClientRect();
+    const sourceRect = sourceElement.getBoundingClientRect();
+
+    const startX = citationRect.left + citationRect.width / 2;
+    const startY = citationRect.top + citationRect.height / 2;
+    const endX = sourceRect.left;
+    const endY = sourceRect.top + sourceRect.height / 2;
+    
+    const controlX1 = startX + (endX - startX) * 0.25;
+    const controlY1 = startY;
+    const controlX2 = startX + (endX - startX) * 0.75;
+    const controlY2 = endY;
+
+    setLinePath(`M ${startX},${startY} C ${controlX1},${controlY1} ${controlX2},${controlY2} ${endX},${endY}`);
+  }, [citationElement, getSourceElement]);
+
+
+  useEffect(() => {
+    const sourceContainer = getSourceElement()?.closest('.overflow-y-auto');
+    
+    updateLine();
+
+    window.addEventListener('resize', updateLine);
+    window.addEventListener('scroll', updateLine, true); // Use capture to get all scroll events
+    
+    if(sourceContainer) {
+      sourceContainer.addEventListener('scroll', updateLine, true);
+    }
+    
+    return () => {
+      window.removeEventListener('resize', updateLine);
+      window.removeEventListener('scroll', updateLine, true);
+      if(sourceContainer) {
+        sourceContainer.removeEventListener('scroll', updateLine, true);
+      }
+    };
+  }, [updateLine, getSourceElement]);
+
+  return (
+    <div 
+      className="fixed inset-0 z-20"
+      onClick={onExit}
+    >
+      <svg className="absolute inset-0 w-full h-full pointer-events-none">
+        {linePath && (
+          <path
+            ref={lineRef}
+            d={linePath}
+            stroke="rgba(59, 130, 246, 0.6)"
+            strokeWidth="2"
+            fill="none"
+            strokeDasharray="4 4"
+          >
+            <animate
+                attributeName="stroke-dashoffset"
+                from="16"
+                to="0"
+                dur="1s"
+                repeatCount="indefinite"
+              />
+          </path>
+        )}
+      </svg>
+    </div>
+  );
+};
+
+===== FILE: ./index.html =====
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DeepWiki RAG Chat</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+    </style>
+  <script type="importmap">
+{
+  "imports": {
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0"
+  }
+}
+</script>
+<link rel="stylesheet" href="/index.css">
+</head>
+  <body class="bg-gray-50 dark:bg-gray-900">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
+
+
+===== FILE: ./index.tsx =====
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import App from './App';
+
+const rootElement = document.getElementById('root');
+if (!rootElement) {
+  throw new Error("Could not find root element to mount to");
+}
+
+const root = ReactDOM.createRoot(rootElement);
+root.render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<App />} />
+        <Route path="/search/:conversationId" element={<App />} />
+      </Routes>
+    </BrowserRouter>
+  </React.StrictMode>
+);
+
+===== FILE: ./vite.config.ts =====
+import path from 'path';
+import { defineConfig, loadEnv } from 'vite';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig(({ mode }) => {
+    const env = loadEnv(mode, '.', '');
+    return {
+      server: {
+        port: 3000,
+        host: '0.0.0.0',
+      },
+      plugins: [react()],
+      define: {
+        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+      },
+      resolve: {
+        alias: {
+          '@': path.resolve(__dirname, '.'),
+        }
+      }
+    };
+});
+
+
+===== FILE: ./App.tsx =====
+import React, { useState, useEffect, useRef } from 'react';
+import { ChatInterface } from './components/ChatInterface';
+import { QAPair, ActiveHighlight } from './types';
+import { useRAGStream } from './hooks/useRAGStream';
+import { DolphinIcon } from './components/icons/DolphinIcon';
+import { FocusOverlay } from './components/FocusOverlay';
+import { useNavigate, useParams } from 'react-router-dom';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
+
+function App() {
+  const [history, setHistory] = useState<QAPair[]>([]);
+  const [question, setQuestion] = useState('');
+  const { currentAnswer, sources, statusMessage, error, isLoading, startStream } = useRAGStream();
+  const mainContentRef = useRef<HTMLDivElement>(null);
+  const [focusMode, setFocusMode] = useState<{ active: boolean; highlight: ActiveHighlight | null; citationElement: HTMLElement | null; scrollPosition: number | null }>({ active: false, highlight: null, citationElement: null, scrollPosition: null });
+  
+  // --- 路由和数据加载 ---
+  const { conversationId } = useParams<{ conversationId?: string }>();
+  const navigate = useNavigate();
+
+  // 使用一个 ref 来防止 useEffect 在开发模式下因 StrictMode 运行两次导致重复请求
+  const initialLoadRef = useRef(false);
+
+  useEffect(() => {
+    const loadAndProcessConversation = async (id: string) => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/rag/conversations/${id}`);
+        if (response.ok) {
+          const data = await response.json();
+          
+          // --- 检查历史记录的最后一条消息 ---
+          const loadedHistory = data.history || [];
+          const lastMessage = loadedHistory.length > 0 ? loadedHistory[loadedHistory.length - 1] : null;
+
+          // 将后端原始历史转换为前端 QAPair 格式
+          const formattedHistory: QAPair[] = [];
+          for (let i = 0; i < loadedHistory.length; i += 2) {
+            const userMsg = loadedHistory[i];
+            const assistantMsg = loadedHistory[i+1];
+            if (userMsg?.role === 'user') {
+                formattedHistory.push({
+                id: `hist-${i}`,
+                question: userMsg.content,
+                // 如果 assistant 消息不存在 (例如刚创建的对话)，则 answer 为空
+                answer: assistantMsg?.content || '', 
+                sources: {} // sources 需要在流式传输时填充
+              });
+            }
+          }
+          setHistory(formattedHistory);
+
+          // --- 关键逻辑：如果最后一条是用户消息，则自动获取回答 ---
+          if (lastMessage && lastMessage.role === 'user') {
+             // 找到对应的 qaPairShell 以便更新
+            const qaPairShell = formattedHistory[formattedHistory.length - 1];
+            
+            startStream(lastMessage.content, formattedHistory.slice(0, -1), id, (fullAnswer, finalSources, updatedId) => {
+                const finalQAPair: QAPair = {
+                  id: qaPairShell.id,
+                  question: lastMessage.content,
+                  answer: fullAnswer,
+                  sources: finalSources,
+                };
+                // 更新 history 状态
+                setHistory(prev => prev.map(p => p.id === qaPairShell.id ? finalQAPair : p));
+            });
+          }
+
+        } else {
+          console.error(`Conversation ${id} not found.`);
+          navigate('/');
+        }
+      } catch (err) {
+        console.error('Failed to load conversation:', err);
+        navigate('/');
+      }
+    };
+
+    // 防止在 React.StrictMode 下重复执行
+    if (conversationId && !initialLoadRef.current) {
+      initialLoadRef.current = true;
+      loadAndProcessConversation(conversationId);
+    } else if (!conversationId) {
+      setHistory([]);
+      initialLoadRef.current = false; // 重置 ref 以便导航到新页面时可以加载
+    }
+  }, [conversationId, navigate, startStream]);
+
+  // useEffect(() => {
+  //   if (isLoading) {
+  //     const mainEl = mainContentRef.current;
+  //     if (mainEl) {
+  //       mainEl.scrollTop = mainEl.scrollHeight;
+  //     }
+  //   }
+  // }, [history, currentAnswer, isLoading]);
+
+
+  const handleAsk = () => {
+    if (!question.trim() || isLoading) return;
+    
+    const newQuestion = question.trim();
+    
+    // 创建一个临时的问答对用于UI即时显示
+    const qaPairShell: QAPair = {
+        id: `qa-${Date.now()}`,
+        question: newQuestion,
+        answer: '', // 先是空的
+        sources: {}
+    };
+    setHistory(prev => [...prev, qaPairShell]);
+    setQuestion('');
+
+    // 将当前的 conversationId (可能为null) 传给 hook
+    startStream(newQuestion, history, conversationId || null, (fullAnswer, finalSources, newConversationId) => {
+      // 流结束后的回调
+      const finalQAPair: QAPair = {
+        id: qaPairShell.id,
+        question: newQuestion,
+        answer: fullAnswer,
+        sources: finalSources,
+      };
+      setHistory(prev => prev.map(p => p.id === qaPairShell.id ? finalQAPair : p));
+
+      // 如果是新对话，则更新URL
+      if (!conversationId && newConversationId) {
+        navigate(`/search/${newConversationId}`);
+      }
+    });
+  };
+
+  useEffect(() => {
+    if (isLoading) {
+      // 使用函数式更新，这样就不需要将 history 添加到依赖项中
+      setHistory(prevHistory => {
+        if (prevHistory.length === 0) return prevHistory;
+
+        const lastQAPair = prevHistory[prevHistory.length - 1];
+        
+        // 只有当最后一个 QA 对是新创建的 shell 时才更新
+        if (lastQAPair.answer === '' || lastQAPair.id.startsWith('qa-')) {
+          const streamingQAPair: QAPair = {
+            ...lastQAPair,
+            answer: currentAnswer,
+            sources: sources,
+          };
+          
+          // 创建一个新数组并返回
+          const newHistory = [...prevHistory];
+          newHistory[newHistory.length - 1] = streamingQAPair;
+          return newHistory;
+        }
+
+        return prevHistory; // 如果不满足条件，返回原状态以避免不必要的渲染
+      });
+    }
+  }, [currentAnswer, sources, isLoading]);
+
+
+  const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleAsk();
+    }
+  };
+
+  const handleEnterFocusMode = (highlight: ActiveHighlight, element: HTMLElement) => {
+    setFocusMode({
+      active: true,
+      highlight,
+      citationElement: element,
+      scrollPosition: mainContentRef.current?.scrollTop ?? 0,
+    });
+  };
+
+  const handleExitFocusMode = () => {
+    if (mainContentRef.current && focusMode.scrollPosition !== null) {
+      mainContentRef.current.scrollTop = focusMode.scrollPosition;
+    }
+    setFocusMode({ active: false, highlight: null, citationElement: null, scrollPosition: null });
+  };
+  
+  return (
+    <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
+      <div className="fixed inset-0 -z-10 h-full w-full bg-white bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] dark:bg-slate-950 dark:bg-[radial-gradient(#2e3c51_1px,transparent_1px)]"></div>
+      
+      <header className="fixed top-0 left-0 right-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 z-20">
+        <div className="px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <h1 className="text-xl font-bold text-gray-900 dark:text-white">DolphinMind</h1>
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+                <DolphinIcon className="text-gray-400 dark:text-gray-500" />
+                <span className="hidden sm:inline">Powered by DolphinDB</span>
+              </div>
+              <button 
+                onClick={() => alert('Share functionality is a TODO')}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700 transition-colors"
+              >
+                Share
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+      
+      <main ref={mainContentRef} className="px-4 sm:px-6 lg:px-8 pt-16 flex-grow overflow-y-auto pb-48">
+          <div className="pt-8">
+            <ChatInterface 
+              history={history}
+              streamingData={{
+                  currentAnswer,
+                  sources,
+                  statusMessage,
+                  error,
+                  isLoading,
+              }}
+              onEnterFocusMode={handleEnterFocusMode}
+              isFocusModeActive={focusMode.active}
+              focusedHighlight={focusMode.highlight}
+            />
+          </div>
+      </main>
+
+      <footer className="fixed bottom-0 left-0 right-0 p-4 bg-transparent z-10">
+        <div className="mx-auto max-w-3xl">
+          <div className="relative bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg">
+            <textarea
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Ask a question..."
+              disabled={isLoading}
+              rows={1}
+              className="w-full p-4 pr-14 text-gray-900 dark:text-white bg-transparent border-none rounded-lg focus:ring-0 focus:outline-none transition resize-none"
+            />
+            <button
+              onClick={handleAsk}
+              disabled={isLoading || !question.trim()}
+              className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+              aria-label="Send message"
+            >
+              <DolphinIcon size={20} />
+            </button>
+          </div>
+        </div>
+      </footer>
+      {focusMode.active && focusMode.citationElement && (
+        <FocusOverlay 
+          citationElement={focusMode.citationElement}
+          highlight={focusMode.highlight}
+          onExit={handleExitFocusMode}
+        />
+      )}
+    </div>
+  );
+}
+
+export default App;
+

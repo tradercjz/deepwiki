@@ -1,5 +1,8 @@
+
 import { useState, useCallback } from 'react';
-import { RAGMessage, RAGSource, QAPair } from '../types';
+import { QAPair, RAGSource } from '../types';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
 
 export const useRAGStream = () => {
   const [currentAnswer, setCurrentAnswer] = useState('');
@@ -7,126 +10,68 @@ export const useRAGStream = () => {
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const startStream = useCallback(async (
     question: string,
-    history: QAPair[],
-    onComplete: (fullAnswer: string, sources: Record<string, RAGSource>) => void
+    conversationId: string, // ID 现在是必须的
+    onComplete: (fullAnswer: string, finalSources: Record<string, RAGSource>, conversationId: string) => void
   ) => {
-    // Reset state for new stream
+    setIsLoading(true);
+    setError(null);
     setCurrentAnswer('');
     setSources({});
-    setStatusMessage('');
-    setError(null);
-    setIsLoading(true);
+    setStatusMessage('Initiating session...');
 
-    const finalAnswer = { current: '' };
-    const finalSources = { current: {} };
+    let finalAnswer = '';
+    const finalSources: Record<string, RAGSource> = {};
 
     try {
-      // Construct conversation history from previous Q&A pairs
-      const conversation_history = history.flatMap(qa => [
-        { role: 'user', content: qa.question },
-        { role: 'assistant', content: qa.answer }
-      ]);
-      
-      // Add the current user question
-      conversation_history.push({ role: 'user', content: question });
-
-      const response = await fetch('http://183.134.101.139:8007/api/v1/rag/chat', {
+      const response = await fetch(`${API_BASE_URL}/api/v1/rag/chat`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          conversation_history: conversation_history,
-          embedding_model: "qwen_base",
-          vector_store: "duckdb_store"
-        }),
+          question: question,
+          conversation_id: conversationId
+        })
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status} ${response.statusText}`);
-      }
-
-      if (!response.body) {
-        throw new Error('Response body is null');
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let partialData = '';
-
+      if (!response.body) throw new Error('Response body is null.');
+      
+      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+      
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
 
-        partialData += decoder.decode(value, { stream: true });
-        
-        const messageBlocks = partialData.split('\n\n');
-        partialData = messageBlocks.pop() || '';
-        
-        for (const block of messageBlocks) {
-          if (block.startsWith('data: ')) {
-            const jsonStr = block.substring(6);
-            if (jsonStr.trim()) {
-              try {
-                const message = JSON.parse(jsonStr) as RAGMessage;
-                switch (message.type) {
-                  case 'status':
-                    setStatusMessage(message.message);
-                    break;
-                  case 'source':
-                    setSources(prev => {
-                      const newSources = { ...prev, [message.file_path]: message };
-                      finalSources.current = newSources;
-                      return newSources;
-                    });
-                    break;
-                  case 'content':
-                    setCurrentAnswer(prev => {
-                      const newAnswer = prev + message.chunk;
-                      finalAnswer.current = newAnswer;
-                      return newAnswer;
-                    });
-                    break;
-                  case 'error':
-                    setError(message.detail);
-                    setIsLoading(false);
-                    return;
-                  case 'end':
-                    setIsLoading(false);
-                    setStatusMessage('');
-                    onComplete(finalAnswer.current, finalSources.current);
-                    return;
-                }
-              } catch (e) {
-                console.error("Failed to parse JSON from SSE stream:", jsonStr, e);
-              }
+        const lines = value.split('\n\n').filter(line => line.startsWith('data: '));
+        for (const line of lines) {
+          const jsonStr = line.replace('data: ', '');
+          try {
+            const message = JSON.parse(jsonStr);
+            switch (message.type) {
+              case 'status': setStatusMessage(message.message); break;
+              case 'source':
+                finalSources[message.file_path] = message;
+                setSources(prev => ({ ...prev, [message.file_path]: message }));
+                break;
+              case 'content':
+                finalAnswer += message.chunk;
+                setCurrentAnswer(prev => prev + message.chunk);
+                break;
+              case 'error': setError(message.detail); break;
             }
-          }
+          } catch (e) { console.error('Failed to parse SSE message:', jsonStr, e); }
         }
       }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'An unknown error occurred';
-      setError(`Failed to connect to the server: ${errorMessage}`);
+    } catch (err: any) {
+      setError(err.message || 'An unknown error occurred.');
+    } finally {
       setIsLoading(false);
+      setStatusMessage('');
+      onComplete(finalAnswer, finalSources, conversationId);
     }
   }, []);
 
-  const stopStream = useCallback(() => {
-    // This function is kept for API consistency but is now a no-op.
-    // Aborting a fetch request requires an AbortController, which would add complexity.
-    // The stream will naturally close when the server ends it or on error.
-  }, []);
-
-  return {
-    currentAnswer,
-    sources,
-    statusMessage,
-    error,
-    isLoading,
-    startStream,
-    stopStream,
-  };
+  // 导出 setError 和 setIsLoading 以便 App 组件可以手动控制
+  return { currentAnswer, sources, statusMessage, error, isLoading, startStream, setError, setIsLoading };
 };

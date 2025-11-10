@@ -1,64 +1,219 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChatInterface } from './components/ChatInterface';
-import { QAPair, ActiveHighlight } from './types';
+import { QAPair, RAGSource, ActiveHighlight } from './types';
 import { useRAGStream } from './hooks/useRAGStream';
 import { DolphinIcon } from './components/icons/DolphinIcon';
 import { FocusOverlay } from './components/FocusOverlay';
+import { useNavigate, useParams } from 'react-router-dom';
+
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
 
 function App() {
   const [history, setHistory] = useState<QAPair[]>([]);
   const [question, setQuestion] = useState('');
-  const { currentAnswer, sources, statusMessage, error, isLoading, startStream } = useRAGStream();
+  const { 
+    currentAnswer, 
+    sources, 
+    statusMessage, 
+    error, 
+    isLoading, 
+    startStream,
+    setError, 
+    setIsLoading 
+  } = useRAGStream();
+  
   const mainContentRef = useRef<HTMLDivElement>(null);
   const [focusMode, setFocusMode] = useState<{ active: boolean; highlight: ActiveHighlight | null; citationElement: HTMLElement | null; scrollPosition: number | null }>({ active: false, highlight: null, citationElement: null, scrollPosition: null });
 
-  useEffect(() => {
-    if (isLoading) {
-      const mainEl = mainContentRef.current;
-      if (mainEl) {
-        mainEl.scrollTop = mainEl.scrollHeight;
-      }
-    }
-  }, [history, currentAnswer, isLoading]);
+  const { conversationId } = useParams<{ conversationId?: string }>();
+  const navigate = useNavigate();
+  const initialLoadRef = useRef(false);
 
-
-  const handleAsk = () => {
+  const handleAsk = async () => {
     if (!question.trim() || isLoading) return;
-    
     const newQuestion = question.trim();
-    
-    const qaPairShell: QAPair = {
-        id: Date.now().toString(),
+
+    if (conversationId) {
+      // 场景1: 在已有对话中继续提问
+      const qaPairShell: QAPair = {
+        id: `qa-${Date.now()}`,
         question: newQuestion,
         answer: '',
-        sources: {}
-    };
-    setHistory(prev => [...prev, qaPairShell]);
-    setQuestion('');
-
-    startStream(newQuestion, history, (fullAnswer, finalSources) => {
-       const finalQAPair: QAPair = {
-        id: qaPairShell.id,
-        question: newQuestion,
-        answer: fullAnswer,
-        sources: finalSources,
+        sources: {},
       };
-      setHistory(prev => prev.map(p => p.id === qaPairShell.id ? finalQAPair : p));
-    });
+      
+      const updatedHistory = [...history, qaPairShell];
+      setHistory(updatedHistory);
+      setQuestion('');
+
+      startStream(
+        newQuestion,
+        conversationId,
+        (fullAnswer, finalSources, returnedId) => {
+          const finalQAPair: QAPair = {
+            id: qaPairShell.id,
+            question: newQuestion,
+            answer: fullAnswer,
+            sources: finalSources,
+          };
+          setHistory(currentHist => currentHist.map(p => p.id === qaPairShell.id ? finalQAPair : p));
+        }
+      );
+    } else {
+      // 场景2: 开始一个全新对话 (只创建和跳转)
+      setIsLoading(true);
+      setError(null);
+      try {
+        const createResponse = await fetch(`${API_BASE_URL}/api/v1/rag/conversations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            initial_history: [{ role: 'user', content: newQuestion }],
+          }),
+        });
+
+        if (!createResponse.ok) {
+          const errData = await createResponse.json();
+          throw new Error(errData.detail || 'Failed to create a new conversation.');
+        }
+
+        const { conversation_id: newConvId } = await createResponse.json();
+        setQuestion('');
+        navigate(`/search/${newConvId}`, { 
+          state: { isNewConversation: true, question: newQuestion } 
+        });
+        
+        
+        // 后续的加载和流式生成将由下面的 useEffect 处理
+      } catch (err: any) {
+        console.error(err);
+        setError(err.message);
+        setIsLoading(false);
+      }
+    }
   };
-
+  
+  // useEffect 1: 负责响应 URL 变化，加载历史并按需触发流
   useEffect(() => {
-    if (isLoading && history.length > 0) {
-      const lastQAPair = history[history.length - 1];
-      const streamingQAPair: QAPair = {
-        ...lastQAPair,
-        answer: currentAnswer,
-        sources: sources,
-      };
-       setHistory(prev => prev.map(p => p.id === lastQAPair.id ? streamingQAPair : p));
+    const loadAndProcessConversation = async (id: string) => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/api/v1/rag/conversations/${id}`);
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.detail || 'Conversation not found.');
+        }
+
+        const data = await response.json();
+        const loadedHistory = data.history || [];
+        
+        // 转换后端数据为前端格式
+        const formattedHistory: QAPair[] = [];
+        for (let i = 0; i < loadedHistory.length; i += 2) {
+          const userMsg = loadedHistory[i];
+          const assistantMsg = loadedHistory[i + 1];
+          if (userMsg?.role === 'user') {
+            const sourcesData = assistantMsg?.metadata?.sources || [];
+            const sourcesRecord: Record<string, RAGSource> = {};
+            for (const backendSource of sourcesData) {
+              sourcesRecord[backendSource.source] = {
+                type: 'source',
+                file_path: backendSource.source,
+                content: backendSource.content,
+                score: backendSource.score,
+                metadata: {
+                  start_line: backendSource.start_line,
+                  end_line: backendSource.end_line,
+                },
+              };
+            }
+            formattedHistory.push({
+              id: `hist-${i}`,
+              question: userMsg.content,
+              answer: assistantMsg?.content || '',
+              sources: sourcesRecord,
+            });
+          }
+        }
+        setHistory(formattedHistory);
+
+        const isNew = location.state?.isNewConversation;
+        
+        // 检查是否需要自动开始回答
+        const lastMessage = loadedHistory[loadedHistory.length - 1];
+        if (lastMessage && lastMessage.role === 'user' && !isNew) {
+          const qaPairToUpdate = formattedHistory[formattedHistory.length - 1];
+          startStream(
+            qaPairToUpdate.question,
+            id,
+            (fullAnswer, finalSources, returnedId) => {
+              const finalQAPair: QAPair = {
+                id: qaPairToUpdate.id,
+                question: qaPairToUpdate.question,
+                answer: fullAnswer,
+                sources: finalSources,
+              };
+              setHistory(prev => prev.map(p => (p.id === qaPairToUpdate.id ? finalQAPair : p)));
+            }
+          );
+        } else if (isNew) {
+          // 如果是新对话，我们需要手动触发一次流式请求
+            const qaPairToUpdate = formattedHistory[formattedHistory.length - 1];
+            startStream(
+                qaPairToUpdate.question,
+                id,
+                (fullAnswer, finalSources, returnedId) => {
+                    const finalQAPair: QAPair = {
+                        id: qaPairToUpdate.id,
+                        question: qaPairToUpdate.question,
+        
+                        answer: fullAnswer,
+                        sources: finalSources,
+                    };
+                    setHistory(prev => prev.map(p => (p.id === qaPairToUpdate.id ? finalQAPair : p)));
+                }
+            );
+        }
+      } catch (err: any) {
+        console.error('Failed to load conversation:', err);
+        setError(err.message);
+        navigate('/');
+      }
+    };
+
+    if (conversationId && !initialLoadRef.current) {
+      initialLoadRef.current = true;
+      loadAndProcessConversation(conversationId);
+    } else if (!conversationId) {
+      setHistory([]);
+      setError(null);
+      initialLoadRef.current = false;
+    }
+  }, [conversationId, navigate]); // 移除了 startStream 和 setError 依赖，因为它们是稳定的
+
+  // useEffect 2: 负责将流式数据实时更新到UI
+  useEffect(() => {
+    if (isLoading) {
+      setHistory(prevHistory => {
+        if (prevHistory.length === 0) {
+            return prevHistory;
+        }
+        
+        const lastQAPair = prevHistory[prevHistory.length - 1];
+        
+        // ✨ 移除所有 if 判断条件！
+        // 只要在加载中，就用最新的流数据更新最后一个元素。
+        const streamingQAPair: QAPair = {
+            ...lastQAPair,
+            answer: currentAnswer,
+            sources: sources,
+        };
+        
+        const newHistory = [...prevHistory];
+        newHistory[newHistory.length - 1] = streamingQAPair;
+        return newHistory;
+      });
     }
   }, [currentAnswer, sources, isLoading]);
-
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -68,12 +223,7 @@ function App() {
   };
 
   const handleEnterFocusMode = (highlight: ActiveHighlight, element: HTMLElement) => {
-    setFocusMode({
-      active: true,
-      highlight,
-      citationElement: element,
-      scrollPosition: mainContentRef.current?.scrollTop ?? 0,
-    });
+    setFocusMode({ active: true, highlight, citationElement: element, scrollPosition: mainContentRef.current?.scrollTop ?? 0 });
   };
 
   const handleExitFocusMode = () => {
@@ -82,7 +232,7 @@ function App() {
     }
     setFocusMode({ active: false, highlight: null, citationElement: null, scrollPosition: null });
   };
-  
+
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
       <div className="fixed inset-0 -z-10 h-full w-full bg-white bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] dark:bg-slate-950 dark:bg-[radial-gradient(#2e3c51_1px,transparent_1px)]"></div>
