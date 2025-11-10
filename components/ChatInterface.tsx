@@ -130,7 +130,12 @@ const parseContent = (text: string): ContentPart[] => {
 };
 
 
-const ContentRenderer: React.FC<{ content: string; onHighlight: (h: ActiveHighlight | null) => void }> = ({ content, onHighlight }) => {
+const ContentRenderer: React.FC<{ 
+    content: string; 
+    onHighlight: (h: ActiveHighlight | null) => void;
+    onCitationHover: (element: HTMLElement, citations: Citation[]) => void;
+    onCitationLeave: () => void;
+}> = ({ content, onHighlight, onCitationHover, onCitationLeave }) => {
   const parts = parseContent(content);
   return (
     <>
@@ -162,8 +167,15 @@ const ContentRenderer: React.FC<{ content: string; onHighlight: (h: ActiveHighli
               <span
                 key={index}
                 className="bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 font-mono text-sm px-1.5 py-0.5 rounded-md cursor-pointer transition-colors hover:bg-blue-200 dark:hover:bg-blue-800/60"
-                onMouseEnter={() => onHighlight(citations.map(c => ({ filePath: c.filePath, startLine: c.startLine, endLine: c.endLine })))}
-                onMouseLeave={() => onHighlight(null)}
+                onMouseEnter={(e) => {
+                    const highlightPayload = citations.map(c => ({ filePath: c.filePath, startLine: c.startLine, endLine: c.endLine }));
+                    onHighlight(highlightPayload);
+                    onCitationHover(e.currentTarget, citations);
+                }}
+                onMouseLeave={() => {
+                    onHighlight(null);
+                    onCitationLeave();
+                }}
               >
                 [{displayText}]
               </span>
@@ -187,11 +199,48 @@ interface QAPairRendererProps {
   }
 }
 
+const FloatingCitation: React.FC<{
+  citations: Citation[];
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+}> = ({ citations, onMouseEnter, onMouseLeave }) => {
+    const groupedByFile = citations.reduce((acc, c) => {
+        if (!acc[c.filePath]) acc[c.filePath] = [];
+        acc[c.filePath].push(c);
+        return acc;
+    }, {} as Record<string, Citation[]>);
+
+    const displayText = Object.entries(groupedByFile).map(([filePath, fileCitations]) => {
+        const fileName = filePath.split('/').pop() || filePath;
+        const ranges = fileCitations.map(c => c.startLine === c.endLine ? c.startLine : `${c.startLine}-${c.endLine}`).join(', ');
+        return `${fileName}:${ranges}`;
+    }).join('; ');
+
+    return (
+        <div 
+            className="fixed top-20 left-4 sm:left-6 lg:left-8 z-20 transition-all duration-300 ease-out"
+            onMouseEnter={onMouseEnter}
+            onMouseLeave={onMouseLeave}
+        >
+          <div className="flex items-center gap-2">
+            <span
+                className="bg-white dark:bg-slate-800 shadow-lg text-blue-600 dark:text-blue-300 font-mono text-sm px-2 py-1.5 rounded-md border border-gray-200 dark:border-gray-700"
+            >
+                [{displayText}]
+            </span>
+            <div className="w-8 h-px bg-gray-300 dark:bg-gray-600"></div>
+          </div>
+        </div>
+    );
+};
+
 const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData }) => {
     const leftColRef = useRef<HTMLDivElement>(null);
     const rightColRef = useRef<HTMLDivElement>(null);
+    const observerRef = useRef<IntersectionObserver | null>(null);
 
     const [activeHighlight, setActiveHighlight] = useState<ActiveHighlight | null>(null);
+    const [floatingCitation, setFloatingCitation] = useState<{ element: HTMLElement; citations: Citation[] } | null>(null);
 
     const { isLoading, error, statusMessage } = streamingData;
     const isStreamingThisBlock = isLast && isLoading;
@@ -200,15 +249,12 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
         const setMaxHeight = () => {
             if (leftColRef.current && rightColRef.current) {
                 const leftHeight = leftColRef.current.offsetHeight;
-                // Use maxHeight to prevent unnecessary whitespace, but allow scrolling for long content
                 rightColRef.current.style.maxHeight = `${leftHeight}px`;
-                rightColRef.current.style.height = ''; // Clear any explicit height
+                rightColRef.current.style.height = ''; 
             }
         };
 
-        // This effect runs whenever the answer content changes, adjusting the maxHeight dynamically
         if (qa.answer || isStreamingThisBlock) {
-            // Use a small timeout to allow the DOM to update before we measure its height
             const timer = setTimeout(setMaxHeight, 50);
             window.addEventListener('resize', setMaxHeight);
             return () => {
@@ -218,10 +264,40 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
         }
     }, [qa.answer, isStreamingThisBlock]);
 
+    const handleCitationHover = (element: HTMLElement, citations: Citation[]) => {
+        observerRef.current?.disconnect();
+        observerRef.current = new IntersectionObserver(
+            ([entry]) => {
+                if (!entry.isIntersecting) {
+                    setFloatingCitation({ element, citations });
+                } else {
+                    setFloatingCitation(null);
+                }
+            },
+            { threshold: 1.0 }
+        );
+        observerRef.current.observe(element);
+    };
+
+    const handleCitationLeave = () => {
+        observerRef.current?.disconnect();
+        setFloatingCitation(null);
+    };
+
     const showSources = Object.keys(qa.sources).length > 0;
 
     return (
         <div className="flex flex-col md:flex-row gap-6">
+            {floatingCitation && (
+                <FloatingCitation
+                    citations={floatingCitation.citations}
+                    onMouseEnter={() => {
+                        const highlightPayload = floatingCitation.citations.map(c => ({ filePath: c.filePath, startLine: c.startLine, endLine: c.endLine }));
+                        setActiveHighlight(highlightPayload);
+                    }}
+                    onMouseLeave={() => setActiveHighlight(null)}
+                />
+            )}
             <div ref={leftColRef} className="md:w-2/5 flex flex-col gap-4">
                 <div className="flex justify-start">
                     <div className="bg-blue-500 text-white p-3 rounded-lg w-full">
@@ -232,7 +308,12 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
                 { (qa.answer || isStreamingThisBlock) && (
                     <div className="flex justify-start mt-2">
                         <div className="bg-white dark:bg-gray-800 p-3 rounded-lg prose prose-sm dark:prose-invert break-words whitespace-pre-wrap w-full border border-gray-200 dark:border-gray-700">
-                            <ContentRenderer content={qa.answer} onHighlight={setActiveHighlight} />
+                            <ContentRenderer 
+                                content={qa.answer} 
+                                onHighlight={setActiveHighlight} 
+                                onCitationHover={handleCitationHover}
+                                onCitationLeave={handleCitationLeave}
+                            />
                             {isStreamingThisBlock && statusMessage && <span className="ml-2 text-gray-500 italic text-xs animate-pulse">{statusMessage}</span>}
                             {isStreamingThisBlock && !statusMessage && qa.answer && <span className="inline-block w-2 h-4 bg-gray-600 dark:bg-gray-400 animate-pulse ml-1"></span>}
                         </div>
