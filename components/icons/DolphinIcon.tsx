@@ -3,9 +3,11 @@ import React from 'react';
 interface DolphinIconProps {
   className?: string;
   size?: number;
+  /** Mirror horizontally when true */
+  mirrored?: boolean;
 }
 
-export const DolphinIcon: React.FC<DolphinIconProps> = ({ className, size = 24 }) => (
+export const DolphinIcon: React.FC<DolphinIconProps> = ({ className, size = 24, mirrored = true }) => (
   <svg 
     xmlns="http://www.w3.org/2000/svg" 
     width={size} 
@@ -17,6 +19,7 @@ export const DolphinIcon: React.FC<DolphinIconProps> = ({ className, size = 24 }
     strokeLinecap="round" 
     strokeLinejoin="round" 
     className={className}
+    style={mirrored ? { transform: 'scaleX(-1)', transformOrigin: '50% 50%' } : undefined}
     aria-hidden="true"
   >
     <g>
