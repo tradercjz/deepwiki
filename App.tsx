@@ -25,9 +25,61 @@ function App() {
   const mainContentRef = useRef<HTMLDivElement>(null);
   const [focusMode, setFocusMode] = useState<{ active: boolean; highlight: ActiveHighlight | null; citationElement: HTMLElement | null; scrollPosition: number | null }>({ active: false, highlight: null, citationElement: null, scrollPosition: null });
 
+  const [shareText, setShareText] = useState('Share');
+
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const initialLoadRef = useRef(false);
+
+  const handleShare = () => {
+    if (!conversationId) {
+      setShareText('No link to share');
+      setTimeout(() => setShareText('Share'), 2000);
+      return;
+    }
+
+    const urlToCopy = window.location.href;
+
+    // --- 优先使用现代、安全的 Clipboard API ---
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(urlToCopy).then(() => {
+        setShareText('Link copied!');
+        setTimeout(() => setShareText('Share'), 2000);
+      }).catch(err => {
+        console.error('Clipboard API failed: ', err);
+        setShareText('Copy failed');
+        setTimeout(() => setShareText('Share'), 2000);
+      });
+    } else {
+      // --- 回退方案：使用传统的 execCommand ---
+      const textArea = document.createElement('textarea');
+      textArea.value = urlToCopy;
+      
+      // 样式设置，防止在屏幕上闪烁
+      textArea.style.position = 'fixed';
+      textArea.style.top = '-9999px';
+      textArea.style.left = '-9999px';
+      
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      
+      try {
+        const successful = document.execCommand('copy');
+        if (successful) {
+          setShareText('Link copied!');
+        } else {
+          throw new Error('Copy command was not successful.');
+        }
+      } catch (err) {
+        console.error('Fallback copy failed: ', err);
+        setShareText('Copy failed');
+      } finally {
+        document.body.removeChild(textArea);
+        setTimeout(() => setShareText('Share'), 2000);
+      }
+    }
+  };
 
   const handleAsk = async () => {
     if (!question.trim() || isLoading) return;
@@ -188,7 +240,7 @@ function App() {
       setError(null);
       initialLoadRef.current = false;
     }
-  }, [conversationId, navigate]); // 移除了 startStream 和 setError 依赖，因为它们是稳定的
+  }, [conversationId, navigate]); 
 
   // useEffect 2: 负责将流式数据实时更新到UI
   useEffect(() => {
@@ -200,7 +252,6 @@ function App() {
         
         const lastQAPair = prevHistory[prevHistory.length - 1];
         
-        // ✨ 移除所有 if 判断条件！
         // 只要在加载中，就用最新的流数据更新最后一个元素。
         const streamingQAPair: QAPair = {
             ...lastQAPair,
@@ -247,10 +298,14 @@ function App() {
                 <span className="hidden sm:inline">Powered by DolphinDB</span>
               </div>
               <button 
-                onClick={() => alert('Share functionality is a TODO')}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700 transition-colors"
+                onClick={handleShare}
+                className={`px-4 py-2 text-sm  font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700 transition-all duration-200 whitespace-nowrap ${
+                  shareText !== 'Share' ? 'w-28' : 'w-20' // 增加一点宽度以容纳更长的文本
+                }`}
+                // 如果正在显示提示信息，则禁用按钮
+                disabled={shareText !== 'Share'}
               >
-                Share
+                {shareText}
               </button>
             </div>
           </div>
