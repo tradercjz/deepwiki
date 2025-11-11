@@ -205,7 +205,7 @@ interface QAPairRendererProps {
     error: string | null;
     statusMessage: string;
   };
-  onEnterFocusMode: (highlight: ActiveHighlight, element: HTMLElement) => void;
+  onEnterFocusMode: (highlight: ActiveHighlight, element: HTMLElement, qaPairContainer: HTMLElement) => void;
   isFocusModeActive: boolean;
   focusedHighlight: ActiveHighlight | null;
 }
@@ -213,6 +213,7 @@ interface QAPairRendererProps {
 const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onEnterFocusMode, isFocusModeActive, focusedHighlight }) => {
     const leftColRef = useRef<HTMLDivElement>(null);
     const rightColRef = useRef<HTMLDivElement>(null);
+    const qaPairRef = useRef<HTMLDivElement>(null);
     const { isLoading, error, statusMessage } = streamingData;
     const isStreamingThisBlock = isLast && isLoading;
 
@@ -238,7 +239,7 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
     const showSources = Object.keys(qa.sources).length > 0;
 
     return (
-        <div className="flex flex-col md:flex-row gap-6">
+        <div ref={qaPairRef} className="flex flex-col md:flex-row gap-6">
             <div ref={leftColRef} className="md:w-2/5 flex flex-col gap-4">
                 <div className="flex justify-start">
                     <div className="bg-blue-500 text-white p-3 rounded-lg w-full">
@@ -252,7 +253,13 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
                             <ContentRenderer 
                                 content={qa.answer} 
                                 sources={qa.sources}
-                                onCitationClick={onEnterFocusMode}
+                                onCitationClick={(highlight, element) => {
+                                    if (qaPairRef.current) {
+                                        onEnterFocusMode(highlight, element, qaPairRef.current);
+                                    } else {
+                                      console.log("QAPair container ref is not available.")
+                                    }
+                                }}
                                 isFocusModeActive={isFocusModeActive}
                                 focusedHighlight={focusedHighlight}
                             />
@@ -296,7 +303,7 @@ interface ChatInterfaceProps {
     error: string | null;
     isLoading: boolean;
   };
-  onEnterFocusMode: (highlight: ActiveHighlight, element: HTMLElement) => void;
+  onEnterFocusMode: (highlight: ActiveHighlight, element: HTMLElement,  qaPairContainer: HTMLElement) => void;
   isFocusModeActive: boolean;
   focusedHighlight: ActiveHighlight | null;
 }

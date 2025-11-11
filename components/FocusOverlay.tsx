@@ -5,20 +5,21 @@ interface FocusOverlayProps {
   citationElement: HTMLElement;
   highlight: ActiveHighlight | null;
   onExit: () => void;
+  qaPairContainer: HTMLElement; 
 }
 
-export const FocusOverlay: React.FC<FocusOverlayProps> = ({ citationElement, highlight, onExit }) => {
+export const FocusOverlay: React.FC<FocusOverlayProps> = ({ citationElement, highlight, onExit, qaPairContainer }) => {
   const [linePath, setLinePath] = useState<string | null>(null);
   const lineRef = useRef<SVGPathElement>(null);
 
   const getSourceElement = useCallback(() => {
     if (!highlight || highlight.length === 0) return null;
     const { filePath, startLine } = highlight[0];
-    const fileContainer = document.querySelector(`[data-filepath="${CSS.escape(filePath)}"][data-focus-target="true"]`);
+    const fileContainer = qaPairContainer.querySelector(`[data-filepath="${CSS.escape(filePath)}"][data-focus-target="true"]`);
     if (!fileContainer) return null;
     const lineElement = fileContainer.querySelector(`[data-line-number="${startLine}"]`);
     return lineElement || fileContainer;
-  }, [highlight]);
+  }, [highlight, qaPairContainer]);
 
   const updateLine = useCallback(() => {
     const sourceElement = getSourceElement();

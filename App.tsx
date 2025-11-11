@@ -23,7 +23,13 @@ function App() {
   } = useRAGStream();
   
   const mainContentRef = useRef<HTMLDivElement>(null);
-  const [focusMode, setFocusMode] = useState<{ active: boolean; highlight: ActiveHighlight | null; citationElement: HTMLElement | null; scrollPosition: number | null }>({ active: false, highlight: null, citationElement: null, scrollPosition: null });
+  const [focusMode, setFocusMode] = useState<{ 
+    active: boolean; 
+    highlight: ActiveHighlight | null; 
+    citationElement: HTMLElement | null; 
+    scrollPosition: number | null;
+    qaPairContainer: HTMLElement | null; 
+  }>({ active: false, highlight: null, citationElement: null, scrollPosition: null, qaPairContainer: null });
 
   const [shareText, setShareText] = useState('Share');
 
@@ -273,8 +279,8 @@ function App() {
     }
   };
 
-  const handleEnterFocusMode = (highlight: ActiveHighlight, element: HTMLElement) => {
-    setFocusMode({ active: true, highlight, citationElement: element, scrollPosition: mainContentRef.current?.scrollTop ?? 0 });
+  const handleEnterFocusMode = (highlight: ActiveHighlight, element: HTMLElement, qaPairContainer: HTMLElement) => {
+    setFocusMode({ active: true, highlight, citationElement: element, scrollPosition: mainContentRef.current?.scrollTop ?? 0, qaPairContainer });
   };
 
   const handleExitFocusMode = () => {
@@ -353,11 +359,12 @@ function App() {
           </div>
         </div>
       </footer>
-      {focusMode.active && focusMode.citationElement && (
+      {focusMode.active && focusMode.citationElement && focusMode.qaPairContainer && (
         <FocusOverlay 
           citationElement={focusMode.citationElement}
           highlight={focusMode.highlight}
           onExit={handleExitFocusMode}
+          qaPairContainer={focusMode.qaPairContainer} 
         />
       )}
     </div>
