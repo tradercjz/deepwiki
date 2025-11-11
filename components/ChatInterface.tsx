@@ -3,6 +3,8 @@ import { QAPair, RAGSource, ActiveHighlight, Citation } from '../types';
 import { SourceViewer } from './SourceViewer';
 import { CopyIcon } from './icons/CopyIcon';
 import { CheckIcon } from './icons/CheckIcon';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 type ContentPart =
   | { type: 'text'; content: string }
@@ -11,6 +13,105 @@ type ContentPart =
   | { type: 'inline_code'; content: string }
   | { type: 'bold'; content: ContentPart[]}
   | { type: 'italic'; content: ContentPart[] }; 
+
+
+
+interface ContentRendererProps {
+  parts: ContentPart[];
+  sources: Record<string, RAGSource>;
+  onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
+  isFocusModeActive: boolean;
+  focusedHighlight: ActiveHighlight | null;
+}
+
+const CitationSpan: React.FC<{
+  citationText: string;
+  sources: Record<string, RAGSource>;
+  onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
+  isFocusModeActive: boolean;
+  focusedHighlight: ActiveHighlight | null;
+}> = ({ citationText, sources, onCitationClick, isFocusModeActive, focusedHighlight }) => {
+  const availableSourcePaths = Object.keys(sources);
+
+  try {
+    const citationsInBlock: Citation[] = [];
+    let lastFilePath: string | null = null;
+    
+    // 解析 [source:...] 内部的文本，去掉首尾的方括号
+    const innerText = citationText.slice(1, -1);
+    const citationParts = innerText.split(',').map(p => p.trim());
+
+    for (const part of citationParts) {
+      const fullCitationMatch = part.match(/(?:source:\s*)?([\w\/\.-]+):(\d+)(?:-(\d+))?/);
+      
+      if (fullCitationMatch) {
+        const parsedFilePath = fullCitationMatch[1];
+        const startLine = parseInt(fullCitationMatch[2], 10);
+        const endLine = fullCitationMatch[3] ? parseInt(fullCitationMatch[3], 10) : startLine;
+
+        let resolvedFilePath: string | null = null;
+        if (availableSourcePaths.includes(parsedFilePath)) {
+          resolvedFilePath = parsedFilePath;
+        } else {
+          const matchingPaths = availableSourcePaths.filter(p => p.endsWith('/' + parsedFilePath) || p === parsedFilePath);
+          if (matchingPaths.length > 0) {
+            resolvedFilePath = matchingPaths[0];
+          }
+        }
+
+        if (resolvedFilePath) {
+          citationsInBlock.push({ filePath: resolvedFilePath, startLine, endLine, text: part });
+          lastFilePath = resolvedFilePath;
+        }
+      } else {
+        const rangeMatch = part.match(/^(\d+)(?:-(\d+))?$/);
+        if (rangeMatch && lastFilePath) {
+          const startLine = parseInt(rangeMatch[1], 10);
+          const endLine = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : startLine;
+          citationsInBlock.push({ filePath: lastFilePath, startLine, endLine, text: part });
+        }
+      }
+    }
+
+    if (citationsInBlock.length === 0) {
+      return <span>{citationText}</span>; // 解析失败则原文返回
+    }
+    
+    const groupedByFile = citationsInBlock.reduce((acc, c) => {
+        if (!acc[c.filePath]) acc[c.filePath] = [];
+        acc[c.filePath].push(c);
+        return acc;
+    }, {} as Record<string, Citation[]>);
+
+    const displayText = Object.entries(groupedByFile).map(([filePath, fileCitations]) => {
+        // ✨ 只显示文件名
+        const fileName = filePath.replace(/\\/g, '/').split('/').pop() || filePath;
+        const ranges = fileCitations.map(c => c.startLine === c.endLine ? c.startLine : `${c.startLine}-${c.endLine}`).join(', ');
+        return `${fileName}:${ranges}`;
+    }).join('; ');
+
+    const highlightPayload = citationsInBlock.map(c => ({ filePath: c.filePath, startLine: c.startLine, endLine: c.endLine }));
+
+    const isThisCitationFocused = isFocusModeActive && focusedHighlight && 
+      JSON.stringify(highlightPayload) === JSON.stringify(focusedHighlight);
+
+    return (
+      <span
+        data-citation-payload={JSON.stringify(highlightPayload)}
+        className={`relative bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 font-mono text-sm px-1.5 py-0.5 rounded-md cursor-pointer transition-all hover:bg-blue-200 dark:hover:bg-blue-800/60 
+          ${isThisCitationFocused ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-800' : ''}
+          group
+        `}
+        onClick={(e) => onCitationClick(highlightPayload, e.currentTarget)}
+      >
+        [{displayText}]
+      </span>
+    );
+  } catch (error) {
+    console.error("Failed to parse citation:", citationText, error);
+    return <span>{citationText}</span>;
+  }
+};
 
 const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, content }) => {
     const [copied, setCopied] = useState(false);
@@ -24,11 +125,11 @@ const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, 
                 console.error('Failed to copy code: ', err);
             });
         } else {
+            // Fallback for non-secure contexts
             const textArea = document.createElement('textarea');
             textArea.value = content;
             textArea.style.position = 'fixed';
             textArea.style.top = '-9999px';
-            textArea.style.left = '-9999px';
             document.body.appendChild(textArea);
             textArea.focus();
             textArea.select();
@@ -39,7 +140,7 @@ const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, 
                     setTimeout(() => setCopied(false), 2000);
                 }
             } catch (err) {
-                console.error('Fallback: Oops, unable to copy', err);
+                console.error('Fallback copy failed: ', err);
             }
             document.body.removeChild(textArea);
         }
@@ -62,201 +163,6 @@ const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, 
     );
 };
 
-const parseContent = (text: string, sources: Record<string, RAGSource>): ContentPart[] => {
-  const parts: ContentPart[] = [];
-  // 1. 引用 [source:...]
-  // 2. 代码块 ```...```
-  // 3. 行内代码 `...`
-  // 4. 加粗 **...** (注意：不能包含 `**` 在内部)
-  // 5. 斜体 *...* (注意：不能包含 `*` 在内部，且不在单词内部)
-  const regex = /\[((?:source:\s*)?.+?)\]|```(\S*)\n?([\s\S]*?)```|`([^`]+)`|\*\*([^\*]+)\*\*|\*([^\*]+)\*/g;
-  let lastIndex = 0;
-  let match;
-  const availableSourcePaths = Object.keys(sources);
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({ type: 'text', content: text.substring(lastIndex, match.index) });
-    }
-
-    // 捕获组索引现在是：
-    // match[1]: 引用
-    // match[2], match[3]: 代码块
-    // match[4]: 行内代码
-    // match[5]: 加粗
-    // match[6]: 斜体
-
-    if (match[1] && !match[2] && match[1].includes(':')) {
-      const innerText = match[1];
-      const citationsInBlock: Citation[] = [];
-      let lastFilePath: string | null = null;
-      
-      const citationParts = innerText.split(',').map(p => p.trim());
-
-      for(const part of citationParts) {
-          const fullCitationMatch = part.match(/(?:source:\s*)?([\w\/\.-]+):(\d+)(?:-(\d+))?/);
-          if (fullCitationMatch) {
-              const parsedFilePath = fullCitationMatch[1];
-              const startLine = parseInt(fullCitationMatch[2], 10);
-              const endLine = fullCitationMatch[3] ? parseInt(fullCitationMatch[3], 10) : startLine;
-
-              let resolvedFilePath: string | null = null;
-              if (availableSourcePaths.includes(parsedFilePath)) {
-                  resolvedFilePath = parsedFilePath;
-              } else {
-                  const matchingPaths = availableSourcePaths.filter(p => p.endsWith('/' + parsedFilePath) || p === parsedFilePath);
-                  if (matchingPaths.length > 0) {
-                      resolvedFilePath = matchingPaths[0];
-                  }
-              }
-
-              if(resolvedFilePath) {
-                citationsInBlock.push({ filePath: resolvedFilePath, startLine, endLine, text: part });
-                lastFilePath = resolvedFilePath;
-              }
-          } else {
-              const rangeMatch = part.match(/(\d+)(?:-(\d+))?/);
-              if (rangeMatch && lastFilePath) {
-                   const startLine = parseInt(rangeMatch[1], 10);
-                   const endLine = rangeMatch[2] ? parseInt(rangeMatch[2], 10) : startLine;
-                   citationsInBlock.push({ filePath: lastFilePath, startLine, endLine, text: part });
-              }
-          }
-      }
-
-      if (citationsInBlock.length > 0) {
-          parts.push({ type: 'citation', citations: citationsInBlock });
-      } else {
-          parts.push({ type: 'text', content: match[0] });
-      }
-    } 
-    else if (match[2] !== undefined) {
-      parts.push({
-        type: 'code',
-        language: match[2],
-        content: match[3],
-      });
-    } else if (match[4]) {
-      parts.push({
-        type: 'inline_code',
-        content: match[4]
-      });
-    } else if (match[5]) { // 处理加粗
-      parts.push({
-        type: 'bold',
-        content: parseContent(match[5], sources)
-      });
-    } else if (match[6]) { // 处理斜体
-      parts.push({
-        type: 'italic',
-        content: parseContent(match[6], sources)
-      });
-    } else {
-        parts.push({ type: 'text', content: match[0] });
-    }
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    parts.push({ type: 'text', content: text.substring(lastIndex) });
-  }
-  return parts;
-};
-
-interface ContentRendererProps {
-  parts: ContentPart[];
-  sources: Record<string, RAGSource>;
-  onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
-  isFocusModeActive: boolean;
-  focusedHighlight: ActiveHighlight | null;
-}
-
-const RecursiveRenderer: React.FC<ContentRendererProps> = ({ 
-  parts, 
-  sources, 
-  onCitationClick, 
-  isFocusModeActive, 
-  focusedHighlight 
-}) => {
-  return (
-    <>
-      {parts.map((part, index) => {
-        switch (part.type) {
-          case 'text':
-            return <span key={index}>{part.content}</span>;
-
-          case 'code':
-            return <CodeBlock key={index} language={part.language} content={part.content} />;
-
-          case 'citation': {
-            const citations = part.citations;
-            if (citations.length === 0) return null;
-            
-            const groupedByFile = citations.reduce((acc, c) => {
-                if (!acc[c.filePath]) acc[c.filePath] = [];
-                acc[c.filePath].push(c);
-                return acc;
-            }, {} as Record<string, Citation[]>);
-
-            const displayText = Object.entries(groupedByFile).map(([filePath, fileCitations]) => {
-                const fileName = filePath.split('/').pop() || filePath;
-                const ranges = fileCitations.map(c => c.startLine === c.endLine ? c.startLine : `${c.startLine}-${c.endLine}`).join(', ');
-                return `${fileName}:${ranges}`;
-            }).join('; ');
-
-            const highlightPayload = citations.map(c => ({ filePath: c.filePath, startLine: c.startLine, endLine: c.endLine }));
-
-            const isThisCitationFocused = isFocusModeActive && focusedHighlight && 
-              JSON.stringify(highlightPayload) === JSON.stringify(focusedHighlight);
-
-            return (
-              <span
-                key={index}
-                data-citation-payload={JSON.stringify(highlightPayload)}
-                className={`relative bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 font-mono text-sm px-1.5 py-0.5 rounded-md cursor-pointer transition-all hover:bg-blue-200 dark:hover:bg-blue-800/60 
-                  ${isThisCitationFocused ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-800' : ''}
-                  group
-                `}
-                onClick={(e) => onCitationClick(highlightPayload, e.currentTarget)}
-              >
-                [{displayText}]
-                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-xs text-white bg-gray-700 rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 whitespace-nowrap">
-                  Click to focus
-                </span>
-              </span>
-            );
-          }
-          
-          case 'inline_code':
-            return (
-              <code key={index} className="bg-gray-100 dark:bg-gray-700 font-semibold rounded px-1.5 py-0.5 mx-0.5">
-                {part.content}
-              </code>
-            );
-
-          case 'bold':
-            return (
-              <strong key={index} className="font-bold">
-                {/* 递归渲染：将所有 props 传递下去，但使用新的 parts */}
-                <RecursiveRenderer {...{ parts: part.content, sources, onCitationClick, isFocusModeActive, focusedHighlight }} />
-              </strong>
-            );
-
-          case 'italic':
-            return (
-              <em key={index} className="italic">
-                {/* 递归渲染：将所有 props 传递下去，但使用新的 parts */}
-                <RecursiveRenderer {...{ parts: part.content, sources, onCitationClick, isFocusModeActive, focusedHighlight }} />
-              </em>
-            );
-
-          default:
-            return null;
-        }
-      })}
-    </>
-  );
-};
-
 const ContentRenderer: React.FC<{ 
     content: string; 
     sources: Record<string, RAGSource>;
@@ -264,19 +170,69 @@ const ContentRenderer: React.FC<{
     isFocusModeActive: boolean;
     focusedHighlight: ActiveHighlight | null;
 }> = ({ content, sources, onCitationClick, isFocusModeActive, focusedHighlight }) => {
-  const parts = parseContent(content, sources);
-  
+
+  const renderParagraph = ({ node, children }) => {
+      const childrenArray = React.Children.toArray(children);
+      const newChildren: React.ReactNode[] = [];
+
+      childrenArray.forEach((child) => {
+          if (typeof child === 'string') {
+              const citationRegex = /\[source:[^\]]+\]/g;
+              const parts = child.split(citationRegex);
+              const matches = [...child.matchAll(citationRegex)];
+
+              newChildren.push(parts[0]);
+              for (let i = 0; i < matches.length; i++) {
+                  const match = matches[i][0];
+                  newChildren.push(
+                      <CitationSpan
+                          key={`${match}-${i}`}
+                          citationText={match}
+                          sources={sources}
+                          onCitationClick={onCitationClick}
+                          isFocusModeActive={isFocusModeActive}
+                          focusedHighlight={focusedHighlight}
+                      />
+                  );
+                  newChildren.push(parts[i + 1]);
+              }
+          } else {
+              newChildren.push(child);
+          }
+      });
+
+      return <p>{newChildren}</p>;
+  };
+
+  const createComponents = () => {
+    return {
+        p: renderParagraph,
+        // ✨ CodeBlock 渲染器
+        code({ node, inline, className, children, ...props }) {
+          const match = /language-(\w+)/.exec(className || '');
+          return !inline && match ? (
+            <CodeBlock language={match[1]} content={String(children).replace(/\n$/, '')} />
+          ) : ( <code className="bg-gray-100 dark:bg-gray-700 font-semibold rounded px-1.5 py-0.5 mx-0.5" {...props}>{children}</code> );
+        },
+        table: ({ node, ...props }) => <table className="w-full border-collapse border border-gray-300 dark:border-gray-600 my-4" {...props} />,
+        thead: ({ node, ...props }) => <thead className="bg-gray-100 dark:bg-gray-800" {...props} />,
+        th: ({ node, ...props }) => <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left font-semibold" {...props} />,
+        tbody: ({ node, ...props }) => <tbody className="bg-white dark:bg-gray-900" {...props} />,
+        tr: ({ node, ...props }) => <tr className="border-t border-gray-200 dark:border-gray-700" {...props} />,
+        td: ({ node, ...props }) => <td className="border border-gray-300 dark:border-gray-600 px-4 py-2" {...props} />,
+        a: ({ node, href, children, ...props }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline hover:text-blue-600" {...props}>{children}</a>,
+    }
+  }
+
   return (
-    <RecursiveRenderer 
-      parts={parts} 
-      sources={sources} 
-      onCitationClick={onCitationClick}
-      isFocusModeActive={isFocusModeActive}
-      focusedHighlight={focusedHighlight}
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      children={content}
+      components={createComponents()}
     />
   );
-  
 };
+
 
 interface QAPairRendererProps {
   qa: QAPair;
@@ -286,12 +242,11 @@ interface QAPairRendererProps {
     error: string | null;
     statusMessage: string;
   };
-  onEnterFocusMode: (highlight: ActiveHighlight, element: HTMLElement, qaPairContainer: HTMLElement) => void;
-  isFocusModeActive: boolean;
+  onCitationClick: (highlight: ActiveHighlight) => void;
   focusedHighlight: ActiveHighlight | null;
 }
 
-const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onEnterFocusMode, isFocusModeActive, focusedHighlight }) => {
+const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onCitationClick, focusedHighlight }) => {
     const leftColRef = useRef<HTMLDivElement>(null);
     const rightColRef = useRef<HTMLDivElement>(null);
     const qaPairRef = useRef<HTMLDivElement>(null);
@@ -330,19 +285,15 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
                 
                 { (qa.answer || isStreamingThisBlock) && (
                     <div className="flex justify-start mt-2">
-                        <div className="bg-white dark:bg-gray-800 p-3 rounded-lg prose prose-sm dark:prose-invert break-words whitespace-pre-wrap w-full border border-gray-200 dark:border-gray-700">
+                        <div className="bg-white dark:bg-gray-800 p-3 rounded-lg w-full border border-gray-200 dark:border-gray-700 
+                            prose prose-sm dark:prose-invert max-w-none 
+                            prose-h2:border-b prose-h2:pb-2 prose-h2:mb-4
+                            dark:prose-h2:border-gray-600">
                             <ContentRenderer 
                                 content={qa.answer} 
-                                sources={qa.sources}
-                                onCitationClick={(highlight, element) => {
-                                    if (qaPairRef.current) {
-                                        onEnterFocusMode(highlight, element, qaPairRef.current);
-                                    } else {
-                                      console.log("QAPair container ref is not available.")
-                                    }
-                                }}
-                                isFocusModeActive={isFocusModeActive}
-                                focusedHighlight={focusedHighlight}
+                                sources={qa.sources} // 传回 sources
+                                onCitationClick={(highlight, element) => onCitationClick(highlight)}
+                                focusedHighlight={focusedHighlight} 
                             />
                             {isStreamingThisBlock && statusMessage && <span className="ml-2 text-gray-500 italic text-xs animate-pulse">{statusMessage}</span>}
                             {isStreamingThisBlock && !statusMessage && qa.answer && <span className="inline-block w-2 h-4 bg-gray-600 dark:bg-gray-400 animate-pulse ml-1"></span>}
@@ -366,7 +317,6 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
                         sources={qa.sources}
                         highlight={focusedHighlight}
                         activeAnswer={qa.answer}
-                        isFocusModeActive={isFocusModeActive}
                         />
                     </div>
                 )}
@@ -384,12 +334,11 @@ interface ChatInterfaceProps {
     error: string | null;
     isLoading: boolean;
   };
-  onEnterFocusMode: (highlight: ActiveHighlight, element: HTMLElement,  qaPairContainer: HTMLElement) => void;
-  isFocusModeActive: boolean;
+  onCitationClick: (highlight: ActiveHighlight) => void;
   focusedHighlight: ActiveHighlight | null;
 }
 
-export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streamingData, onEnterFocusMode, isFocusModeActive, focusedHighlight }) => {
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streamingData, onCitationClick, focusedHighlight }) => {
   return (
     <div>
       {history.map((qa, index) => (
@@ -406,8 +355,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streaming
             qa={qa}
             isLast={index === history.length - 1}
             streamingData={streamingData}
-            onEnterFocusMode={onEnterFocusMode}
-            isFocusModeActive={isFocusModeActive}
+            onCitationClick={onCitationClick}
             focusedHighlight={focusedHighlight}
           />
         </div>

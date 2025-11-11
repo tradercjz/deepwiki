@@ -23,13 +23,7 @@ function App() {
   } = useRAGStream();
   
   const mainContentRef = useRef<HTMLDivElement>(null);
-  const [focusMode, setFocusMode] = useState<{ 
-    active: boolean; 
-    highlight: ActiveHighlight | null; 
-    citationElement: HTMLElement | null; 
-    scrollPosition: number | null;
-    qaPairContainer: HTMLElement | null; 
-  }>({ active: false, highlight: null, citationElement: null, scrollPosition: null, qaPairContainer: null });
+  const [focusedHighlight, setFocusedHighlight] = useState<ActiveHighlight | null>(null);
 
   const [shareText, setShareText] = useState('Share');
 
@@ -279,15 +273,15 @@ function App() {
     }
   };
 
-  const handleEnterFocusMode = (highlight: ActiveHighlight, element: HTMLElement, qaPairContainer: HTMLElement) => {
-    setFocusMode({ active: true, highlight, citationElement: element, scrollPosition: mainContentRef.current?.scrollTop ?? 0, qaPairContainer });
-  };
-
-  const handleExitFocusMode = () => {
-    if (mainContentRef.current && focusMode.scrollPosition !== null) {
-      mainContentRef.current.scrollTop = focusMode.scrollPosition;
+  const handleCitationClick = (highlight: ActiveHighlight) => {
+    // 使用 JSON.stringify 来简单地比较两个对象/数组是否相等
+    const isAlreadyFocused = JSON.stringify(highlight) === JSON.stringify(focusedHighlight);
+    
+    if (isAlreadyFocused) {
+      setFocusedHighlight(null); // 如果点击的是同一个，则取消高亮
+    } else {
+      setFocusedHighlight(highlight); // 否则，设置新的高亮
     }
-    setFocusMode({ active: false, highlight: null, citationElement: null, scrollPosition: null });
   };
 
   return (
@@ -329,9 +323,8 @@ function App() {
                   error,
                   isLoading,
               }}
-              onEnterFocusMode={handleEnterFocusMode}
-              isFocusModeActive={focusMode.active}
-              focusedHighlight={focusMode.highlight}
+              onCitationClick={handleCitationClick}
+              focusedHighlight={focusedHighlight}
             />
           </div>
       </main>
@@ -359,14 +352,7 @@ function App() {
           </div>
         </div>
       </footer>
-      {focusMode.active && focusMode.citationElement && focusMode.qaPairContainer && (
-        <FocusOverlay 
-          citationElement={focusMode.citationElement}
-          highlight={focusMode.highlight}
-          onExit={handleExitFocusMode}
-          qaPairContainer={focusMode.qaPairContainer} 
-        />
-      )}
+      
     </div>
   );
 }

@@ -222,29 +222,35 @@ interface SourceViewerProps {
   sources: Record<string, RAGSource> | null;
   highlight: ActiveHighlight | null;
   activeAnswer?: string;
-  isFocusModeActive?: boolean;
 }
 
-export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, activeAnswer, isFocusModeActive }) => {
+export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, activeAnswer }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const isFocusModeActiveRef = useRef(isFocusModeActive);
+  const prevHighlightRef = useRef<ActiveHighlight | null>(null);
 
   useEffect(() => {
-    const wasFocusModeActive = isFocusModeActiveRef.current;
-    isFocusModeActiveRef.current = isFocusModeActive;
-
-    // Scroll into view only when we are ENTERING focus mode.
-    if (!wasFocusModeActive && isFocusModeActive && highlight && highlight.length > 0 && containerRef.current) {
-      const firstHighlight = highlight[0];
-      const fileContainer = containerRef.current.querySelector(`[data-filepath="${CSS.escape(firstHighlight.filePath)}"]`);
-      if (fileContainer) {
-        const lineElement = fileContainer.querySelector(`[data-line-number="${firstHighlight.startLine}"]`);
-        if (lineElement) {
-          lineElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // ✨ 2. 新的滚动逻辑
+    const prevHighlight = prevHighlightRef.current;
+    
+    // 当 highlight 从无到有，或者变成了一个新的值时，触发滚动
+    if (highlight && JSON.stringify(highlight) !== JSON.stringify(prevHighlight)) {
+      if (containerRef.current) {
+        const firstHighlight = highlight[0];
+        const fileContainer = containerRef.current.querySelector(`[data-filepath="${CSS.escape(firstHighlight.filePath)}"]`);
+        if (fileContainer) {
+          const lineElement = fileContainer.querySelector(`[data-line-number="${firstHighlight.startLine}"]`);
+          if (lineElement) {
+            // 使用平滑滚动，并让目标行居中显示
+            lineElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
         }
       }
     }
-  }, [isFocusModeActive, highlight]);
+    
+    // ✨ 3. 在 effect 的最后，更新 ref 为当前值，供下一次渲染比较
+    prevHighlightRef.current = highlight;
+
+  }, [highlight]); //
 
   const allCitations = useMemo(() => {
     if (!activeAnswer || !sources) return [];
