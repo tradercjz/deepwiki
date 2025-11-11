@@ -299,6 +299,12 @@ function App() {
     }
   };
 
+  const handleNewChat = () => {
+    // 如果正在加载，则不执行任何操作，防止中断当前流
+    if (isLoading) return;
+    navigate('/');
+  };
+
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
       <div className="fixed inset-0 -z-10 h-full w-full bg-white bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] dark:bg-slate-950 dark:bg-[radial-gradient(#2e3c51_1px,transparent_1px)]"></div>
@@ -312,6 +318,14 @@ function App() {
                 <DolphinIcon className="text-gray-400 dark:text-gray-500" />
                 <span className="hidden sm:inline"></span>
               </div>
+
+              <button
+                onClick={handleNewChat}
+                disabled={isLoading}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                New Chat
+              </button>
               <button 
                 onClick={handleShare}
                 className={`px-4 py-2 text-sm  font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700 transition-all duration-200 whitespace-nowrap ${
