@@ -267,12 +267,12 @@ export const SourceViewer: React.FC<SourceViewerProps> = ({ sources, highlight, 
 
         for (const part of citationParts) {
             const trimmedPart = part.trim();
-            const fullCitationRegex = /(?:source:\s*)?([\w\/\.-]+):(\d+)(?:-(\d+))?/;
+            const fullCitationRegex = /(?:source\s*:\s*)?([\w\/\s\.-]+?)\s*:\s*(\d+)(?:-(\d+))?/;
             const rangeOnlyRegex = /^(\d+)(?:-(\d+))?$/;
 
             let partMatch = trimmedPart.match(fullCitationRegex);
             if (partMatch) {
-                const parsedFilePath = partMatch[1];
+                const parsedFilePath = partMatch[1].trim();
                 const startLine = parseInt(partMatch[2], 10);
                 const endLine = partMatch[3] ? parseInt(partMatch[3], 10) : startLine;
                 

@@ -41,10 +41,11 @@ const CitationSpan: React.FC<{
     const citationParts = innerText.split(',').map(p => p.trim());
 
     for (const part of citationParts) {
-      const fullCitationMatch = part.match(/(?:source:\s*)?([\w\/\.-]+):(\d+)(?:-(\d+))?/);
+      // 允许 source 和 : 之间，以及 : 和行号之间有空格
+      const fullCitationMatch = part.match(/(?:source\s*:\s*)?([\w\/\s\.-]+?)\s*:\s*(\d+)(?:-(\d+))?/);
       
       if (fullCitationMatch) {
-        const parsedFilePath = fullCitationMatch[1];
+        const parsedFilePath = fullCitationMatch[1].trim();
         const startLine = parseInt(fullCitationMatch[2], 10);
         const endLine = fullCitationMatch[3] ? parseInt(fullCitationMatch[3], 10) : startLine;
 
@@ -100,6 +101,7 @@ const CitationSpan: React.FC<{
         className={`relative bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300 font-mono text-sm px-1.5 py-0.5 rounded-md cursor-pointer transition-all hover:bg-blue-200 dark:hover:bg-blue-800/60 
           ${isThisCitationFocused ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-white dark:ring-offset-gray-800' : ''}
           group
+          whitespace-nowrap
         `}
         onClick={(e) => onCitationClick(highlightPayload, e.currentTarget)}
       >
@@ -296,12 +298,12 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
 
         for (const part of citationParts) {
             const trimmedPart = part.trim();
-            const fullCitationRegex = /(?:source:\s*)?([\w\/\.-]+):(\d+)(?:-(\d+))?/;
+            const fullCitationRegex = /(?:source\s*:\s*)?([\w\/\s\.-]+?)\s*:\s*(\d+)(?:-(\d+))?/;
             const rangeOnlyRegex = /^(\d+)(?:-(\d+))?$/;
 
             let partMatch = trimmedPart.match(fullCitationRegex);
             if (partMatch) {
-                const parsedFilePath = partMatch[1];
+                const parsedFilePath = partMatch[1].trim();
                 let resolvedFilePath = Object.keys(pair.sources).find(p => p.endsWith('/' + parsedFilePath) || p === parsedFilePath) || null;
 
                 if (resolvedFilePath) {
