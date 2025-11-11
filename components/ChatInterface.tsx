@@ -167,47 +167,68 @@ const ContentRenderer: React.FC<{
     content: string; 
     sources: Record<string, RAGSource>;
     onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
-    isFocusModeActive: boolean;
     focusedHighlight: ActiveHighlight | null;
-}> = ({ content, sources, onCitationClick, isFocusModeActive, focusedHighlight }) => {
+}> = ({ content, sources, onCitationClick, focusedHighlight }) => {
 
-  const renderParagraph = ({ node, children }) => {
+  // ✨ 步骤 1: 创建一个通用的、可重用的函数来处理子节点
+  // 这个函数的核心逻辑和我们之前讨论的一样，但现在它可以被任何组件调用
+  const processChildrenForCitations = (children: React.ReactNode): React.ReactNode[] => {
       const childrenArray = React.Children.toArray(children);
       const newChildren: React.ReactNode[] = [];
 
       childrenArray.forEach((child) => {
           if (typeof child === 'string') {
               const citationRegex = /\[source:[^\]]+\]/g;
-              const parts = child.split(citationRegex);
-              const matches = [...child.matchAll(citationRegex)];
-
-              newChildren.push(parts[0]);
-              for (let i = 0; i < matches.length; i++) {
-                  const match = matches[i][0];
+              let lastIndex = 0;
+              
+              // 使用 .exec() 循环查找所有匹配项
+              let match;
+              while ((match = citationRegex.exec(child)) !== null) {
+                  // 1. 添加上一个匹配项到当前匹配项之间的纯文本
+                  if (match.index > lastIndex) {
+                      newChildren.push(child.substring(lastIndex, match.index));
+                  }
+                  
+                  // 2. 添加 CitationSpan 组件
+                  const citationText = match[0];
                   newChildren.push(
                       <CitationSpan
-                          key={`${match}-${i}`}
-                          citationText={match}
+                          key={`${citationText}-${match.index}`}
+                          citationText={citationText}
                           sources={sources}
                           onCitationClick={onCitationClick}
-                          isFocusModeActive={isFocusModeActive}
                           focusedHighlight={focusedHighlight}
                       />
                   );
-                  newChildren.push(parts[i + 1]);
+                  
+                  // 3. 更新下一个纯文本的起始位置
+                  lastIndex = citationRegex.lastIndex;
               }
+              
+              // 4. 添加最后一个匹配项之后剩余的纯文本
+              if (lastIndex < child.length) {
+                  newChildren.push(child.substring(lastIndex));
+              }
+
           } else {
-              newChildren.push(child);
+              newChildren.push(child); // 保留非字符串元素 (如 <strong>)
           }
       });
-
-      return <p>{newChildren}</p>;
+      
+      return newChildren;
   };
+
 
   const createComponents = () => {
     return {
-        p: renderParagraph,
-        // ✨ CodeBlock 渲染器
+        // ✨ 步骤 2: 将通用函数应用到所有可能包含引用的块级元素上
+        p: ({ node, children, ...props }) => <p {...props}>{processChildrenForCitations(children)}</p>,
+        li: ({ node, children, ...props }) => <li {...props}>{processChildrenForCitations(children)}</li>,
+        td: ({ node, children, ...props }) => <td className="border border-gray-300 dark:border-gray-600 px-4 py-2" {...props}>{processChildrenForCitations(children)}</td>,
+        th: ({ node, children, ...props }) => <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left font-semibold" {...props}>{processChildrenForCitations(children)}</th>,
+        blockquote: ({ node, children, ...props }) => <blockquote {...props}>{processChildrenForCitations(children)}</blockquote>,
+
+        // --- 其他渲染器保持不变或进行微调 ---
         code({ node, inline, className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || '');
           return !inline && match ? (
@@ -216,10 +237,8 @@ const ContentRenderer: React.FC<{
         },
         table: ({ node, ...props }) => <table className="w-full border-collapse border border-gray-300 dark:border-gray-600 my-4" {...props} />,
         thead: ({ node, ...props }) => <thead className="bg-gray-100 dark:bg-gray-800" {...props} />,
-        th: ({ node, ...props }) => <th className="border border-gray-300 dark:border-gray-600 px-4 py-2 text-left font-semibold" {...props} />,
         tbody: ({ node, ...props }) => <tbody className="bg-white dark:bg-gray-900" {...props} />,
         tr: ({ node, ...props }) => <tr className="border-t border-gray-200 dark:border-gray-700" {...props} />,
-        td: ({ node, ...props }) => <td className="border border-gray-300 dark:border-gray-600 px-4 py-2" {...props} />,
         a: ({ node, href, children, ...props }) => <a href={href} target="_blank" rel="noopener noreferrer" className="text-blue-500 underline hover:text-blue-600" {...props}>{children}</a>,
     }
   }
@@ -227,7 +246,7 @@ const ContentRenderer: React.FC<{
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
-      children={content}
+      children={content} 
       components={createComponents()}
     />
   );
