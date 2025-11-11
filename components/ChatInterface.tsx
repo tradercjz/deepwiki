@@ -262,16 +262,170 @@ interface QAPairRendererProps {
   };
   onCitationClick: (highlight: ActiveHighlight, qaId: string) => void;
   activeFocus: { qaId: string; highlight: ActiveHighlight } | null;
+  history: QAPair[]; 
+  index: number;
 }
 
-const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onCitationClick, activeFocus }) => {
+const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onCitationClick, activeFocus, history, index }) => {
     const leftColRef = useRef<HTMLDivElement>(null);
     const rightColRef = useRef<HTMLDivElement>(null);
     const qaPairRef = useRef<HTMLDivElement>(null);
+    const copyMenuRef = useRef<HTMLDivElement>(null); 
     const { isLoading, error, statusMessage } = streamingData;
+    const isStreamingThisBlock = isLast && isLoading;
     
     const isThisQaPairActive = activeFocus?.qaId === qa.id;
     const focusedHighlightForThisQa = isThisQaPairActive ? activeFocus.highlight : null;
+
+    const [isCopyMenuOpen, setIsCopyMenuOpen] = useState(false);
+    const [copyStatus, setCopyStatus] = useState<'idle' | 'response' | 'thread'>('idle');
+
+    // ✨ 3. 辅助函数：将 QA 对象格式化为 Markdown 文本
+    const formatSingleQAPair = (pair: QAPair): string => {
+    let content = `## Question\n\n> ${pair.question}\n\n## Answer\n\n${pair.answer}`;
+    
+    // ✨ 1. 解析答案文本，找出所有实际的引用
+    const citations: Citation[] = [];
+    const citationBlockRegex = /\[((?:source:\s*)?.+?)\]/g;
+    let blockMatch;
+
+    while ((blockMatch = citationBlockRegex.exec(pair.answer)) !== null) {
+        const innerText = blockMatch[1];
+        let lastFilePath: string | null = null;
+        const citationParts = innerText.split(',');
+
+        for (const part of citationParts) {
+            const trimmedPart = part.trim();
+            const fullCitationRegex = /(?:source:\s*)?([\w\/\.-]+):(\d+)(?:-(\d+))?/;
+            const rangeOnlyRegex = /^(\d+)(?:-(\d+))?$/;
+
+            let partMatch = trimmedPart.match(fullCitationRegex);
+            if (partMatch) {
+                const parsedFilePath = partMatch[1];
+                let resolvedFilePath = Object.keys(pair.sources).find(p => p.endsWith('/' + parsedFilePath) || p === parsedFilePath) || null;
+
+                if (resolvedFilePath) {
+                    const startLine = parseInt(partMatch[2], 10);
+                    const endLine = partMatch[3] ? parseInt(partMatch[3], 10) : startLine;
+                    citations.push({ filePath: resolvedFilePath, startLine, endLine, text: trimmedPart });
+                    lastFilePath = resolvedFilePath;
+                }
+            } else {
+                partMatch = trimmedPart.match(rangeOnlyRegex);
+                if (partMatch && lastFilePath) {
+                    const startLine = parseInt(partMatch[1], 10);
+                    const endLine = partMatch[2] ? parseInt(partMatch[2], 10) : startLine;
+                    citations.push({ filePath: lastFilePath, startLine, endLine, text: trimmedPart });
+                }
+            }
+        }
+    }
+
+    // ✨ 2. 如果解析出了引用，则提取并格式化这些片段
+    if (citations.length > 0) {
+        content += "\n\n## Sources\n\n";
+
+        // 按文件路径对引用进行分组
+        const groupedByFile = citations.reduce((acc, c) => {
+            if (!acc[c.filePath]) acc[c.filePath] = [];
+            acc[c.filePath].push(c);
+            return acc;
+        }, {} as Record<string, { startLine: number, endLine: number }[]>);
+
+        // ✨ 3. 遍历分组后的文件，从每个文件中提取片段
+        for (const filePath in groupedByFile) {
+            const sourceDoc = pair.sources[filePath];
+            if (!sourceDoc) continue;
+
+            const fileName = filePath.split('/').pop() || filePath;
+            content += `### Source: ${fileName}\n\n`;
+            
+            const fileContentLines = sourceDoc.content.split('\n');
+            const ranges = groupedByFile[filePath];
+
+            // 对每个文件的引用范围进行排序和合并，避免重复拷贝
+            ranges.sort((a, b) => a.startLine - b.startLine);
+            const mergedRanges: {startLine: number, endLine: number}[] = [];
+            if (ranges.length > 0) {
+                mergedRanges.push({...ranges[0]});
+                for (let i = 1; i < ranges.length; i++) {
+                    const last = mergedRanges[mergedRanges.length - 1];
+                    if (ranges[i].startLine <= last.endLine + 1) {
+                        last.endLine = Math.max(last.endLine, ranges[i].endLine);
+                    } else {
+                        mergedRanges.push({...ranges[i]});
+                    }
+                }
+            }
+
+            // 提取合并后的代码片段
+            mergedRanges.forEach(range => {
+                const snippet = fileContentLines.slice(range.startLine - 1, range.endLine).join('\n');
+                content += `// Lines ${range.startLine}-${range.endLine}\n`;
+                content += "```\n" + snippet + "\n```\n\n";
+            });
+        }
+    }
+    
+    return content;
+};
+
+    const copyToClipboard = (text: string) => {
+      // ✨ 1. 优先使用现代、安全的 Clipboard API
+      if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard.writeText(text).catch(err => {
+              console.error("Clipboard API failed:", err);
+          });
+      } else {
+          // ✨ 2. 如果不安全，则回退到传统的 execCommand 方法
+          const textArea = document.createElement('textarea');
+          textArea.value = text;
+          
+          // 样式设置，防止在屏幕上闪烁
+          textArea.style.position = 'fixed';
+          textArea.style.top = '-9999px';
+          textArea.style.left = '-9999px';
+          
+          document.body.appendChild(textArea);
+          textArea.focus();
+          textArea.select();
+          
+          try {
+              const successful = document.execCommand('copy');
+              if (!successful) {
+                  console.error('Fallback: Copy command was not successful.');
+              }
+          } catch (err) {
+              console.error('Fallback copy failed:', err);
+          } finally {
+              document.body.removeChild(textArea);
+          }
+      }
+    };
+
+    const handleCopy = (type: 'response' | 'thread') => {
+        let textToCopy = '';
+        if (type === 'response') {
+            textToCopy = formatSingleQAPair(qa);
+        } else {
+            const threadSlice = history.slice(0, index + 1);
+            textToCopy = threadSlice.map(formatSingleQAPair).join('\n\n---\n\n');
+        }
+        copyToClipboard(textToCopy);
+        setCopyStatus(type);
+        setIsCopyMenuOpen(false);
+        setTimeout(() => setCopyStatus('idle'), 2000);
+    };
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (copyMenuRef.current && !copyMenuRef.current.contains(event.target as Node)) {
+                setIsCopyMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     useEffect(() => {
         const setMaxHeight = () => {
@@ -304,8 +458,8 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
                 </div>
                 
                 { (qa.answer || (isLast && isLoading)) && (
-                    <div className="flex justify-start mt-2">
-                         <div className="bg-white dark:bg-gray-800 p-3 rounded-lg w-full border border-gray-200 dark:border-gray-700 
+                    <div className="relative flex justify-start mt-2">
+                        <div className="bg-white dark:bg-gray-800 p-3 rounded-lg w-full border border-gray-200 dark:border-gray-700 
                                       prose prose-sm dark:prose-invert max-w-none 
                                       prose-h2:border-b prose-h2:pb-2 prose-h2:mb-4
                                       dark:prose-h2:border-gray-600">
@@ -326,6 +480,33 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
                             {isLoading && isLast && statusMessage && <span className="ml-2 text-gray-500 italic text-xs animate-pulse">{statusMessage}</span>}
                             {isLoading && isLast && !statusMessage && qa.answer && <span className="inline-block w-2 h-4 bg-gray-600 dark:bg-gray-400 animate-pulse ml-1"></span>}
                         </div>
+                        { !isStreamingThisBlock && qa.answer && (
+                            <div ref={copyMenuRef} className="absolute bottom-3 right-3">
+                                <button
+                                    onClick={() => setIsCopyMenuOpen(prev => !prev)}
+                                    className="p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-700 rounded-md transition-colors"
+                                    aria-label="Copy options"
+                                >
+                                    {copyStatus !== 'idle' ? <CheckIcon /> : <CopyIcon />}
+                                </button>
+                                {isCopyMenuOpen && (
+                                    <div className="absolute bottom-full right-0 mb-2 w-40 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-md shadow-lg z-10">
+                                        <button 
+                                            onClick={() => handleCopy('response')}
+                                            className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                        >
+                                            Copy Response
+                                        </button>
+                                        <button 
+                                            onClick={() => handleCopy('thread')}
+                                            className="block w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700"
+                                        >
+                                            Copy Thread
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
                 { isLast && error && (
@@ -384,7 +565,9 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streaming
             isLast={index === history.length - 1}
             streamingData={streamingData}
             onCitationClick={onCitationClick} 
-            activeFocus={activeFocus} 
+            activeFocus={activeFocus}
+            history={history}
+            index={index}
           />
         </div>
       ))}
