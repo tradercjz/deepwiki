@@ -32,6 +32,20 @@ function App() {
   const navigate = useNavigate();
   const initialLoadRef = useRef(false);
 
+  useEffect(() => {
+    // 只有在正在加载（即流式传输中）并且 mainContentRef 已经挂载时才执行
+    if (isLoading && mainContentRef.current) {
+      const mainEl = mainContentRef.current;
+      
+      // ✨ 核心逻辑：将滚动条的位置设置到元素总高度的位置，即滚动到底部
+      // 我们使用 scrollTo 和 behavior: 'smooth' 来实现平滑的滚动效果
+      mainEl.scrollTo({
+        top: mainEl.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [currentAnswer, isLoading]); 
+
   const handleShare = () => {
     if (!conversationId) {
       setShareText('No link to share');
@@ -296,7 +310,7 @@ function App() {
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                 <DolphinIcon className="text-gray-400 dark:text-gray-500" />
-                <span className="hidden sm:inline">Powered by DolphinDB</span>
+                <span className="hidden sm:inline"></span>
               </div>
               <button 
                 onClick={handleShare}
