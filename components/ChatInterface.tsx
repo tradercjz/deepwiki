@@ -8,7 +8,9 @@ type ContentPart =
   | { type: 'text'; content: string }
   | { type: 'citation'; citations: Citation[] }
   | { type: 'code'; language: string; content: string }
-  | { type: 'inline_code'; content: string };
+  | { type: 'inline_code'; content: string }
+  | { type: 'bold'; content: ContentPart[]}
+  | { type: 'italic'; content: ContentPart[] }; 
 
 const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, content }) => {
     const [copied, setCopied] = useState(false);
@@ -62,7 +64,12 @@ const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, 
 
 const parseContent = (text: string, sources: Record<string, RAGSource>): ContentPart[] => {
   const parts: ContentPart[] = [];
-  const regex = /\[((?:source:\s*)?.+?)\]|```(\S*)\n?([\s\S]*?)```|`([^`]+)`/g;
+  // 1. 引用 [source:...]
+  // 2. 代码块 ```...```
+  // 3. 行内代码 `...`
+  // 4. 加粗 **...** (注意：不能包含 `**` 在内部)
+  // 5. 斜体 *...* (注意：不能包含 `*` 在内部，且不在单词内部)
+  const regex = /\[((?:source:\s*)?.+?)\]|```(\S*)\n?([\s\S]*?)```|`([^`]+)`|\*\*([^\*]+)\*\*|\*([^\*]+)\*/g;
   let lastIndex = 0;
   let match;
   const availableSourcePaths = Object.keys(sources);
@@ -71,6 +78,13 @@ const parseContent = (text: string, sources: Record<string, RAGSource>): Content
     if (match.index > lastIndex) {
       parts.push({ type: 'text', content: text.substring(lastIndex, match.index) });
     }
+
+    // 捕获组索引现在是：
+    // match[1]: 引用
+    // match[2], match[3]: 代码块
+    // match[4]: 行内代码
+    // match[5]: 加粗
+    // match[6]: 斜体
 
     if (match[1] && !match[2] && match[1].includes(':')) {
       const innerText = match[1];
@@ -127,6 +141,16 @@ const parseContent = (text: string, sources: Record<string, RAGSource>): Content
         type: 'inline_code',
         content: match[4]
       });
+    } else if (match[5]) { // 处理加粗
+      parts.push({
+        type: 'bold',
+        content: parseContent(match[5], sources)
+      });
+    } else if (match[6]) { // 处理斜体
+      parts.push({
+        type: 'italic',
+        content: parseContent(match[6], sources)
+      });
     } else {
         parts.push({ type: 'text', content: match[0] });
     }
@@ -138,22 +162,28 @@ const parseContent = (text: string, sources: Record<string, RAGSource>): Content
   return parts;
 };
 
-const ContentRenderer: React.FC<{ 
-    content: string; 
-    sources: Record<string, RAGSource>;
-    onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
-    isFocusModeActive: boolean;
-    focusedHighlight: ActiveHighlight | null;
-}> = ({ content, sources, onCitationClick, isFocusModeActive, focusedHighlight }) => {
-  const parts = parseContent(content, sources);
+interface ContentRendererProps {
+  parts: ContentPart[];
+  sources: Record<string, RAGSource>;
+  onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
+  isFocusModeActive: boolean;
+  focusedHighlight: ActiveHighlight | null;
+}
 
+const RecursiveRenderer: React.FC<ContentRendererProps> = ({ 
+  parts, 
+  sources, 
+  onCitationClick, 
+  isFocusModeActive, 
+  focusedHighlight 
+}) => {
   return (
     <>
       {parts.map((part, index) => {
         switch (part.type) {
           case 'text':
             return <span key={index}>{part.content}</span>;
-          
+
           case 'code':
             return <CodeBlock key={index} language={part.language} content={part.content} />;
 
@@ -195,14 +225,28 @@ const ContentRenderer: React.FC<{
               </span>
             );
           }
+          
           case 'inline_code':
             return (
-              <code 
-                key={index}
-                className="bg-gray-100 dark:bg-gray-700 font-semibold rounded px-1.5 py-0.5 mx-0.5"
-              >
+              <code key={index} className="bg-gray-100 dark:bg-gray-700 font-semibold rounded px-1.5 py-0.5 mx-0.5">
                 {part.content}
               </code>
+            );
+
+          case 'bold':
+            return (
+              <strong key={index} className="font-bold">
+                {/* 递归渲染：将所有 props 传递下去，但使用新的 parts */}
+                <RecursiveRenderer {...{ parts: part.content, sources, onCitationClick, isFocusModeActive, focusedHighlight }} />
+              </strong>
+            );
+
+          case 'italic':
+            return (
+              <em key={index} className="italic">
+                {/* 递归渲染：将所有 props 传递下去，但使用新的 parts */}
+                <RecursiveRenderer {...{ parts: part.content, sources, onCitationClick, isFocusModeActive, focusedHighlight }} />
+              </em>
             );
 
           default:
@@ -211,6 +255,27 @@ const ContentRenderer: React.FC<{
       })}
     </>
   );
+};
+
+const ContentRenderer: React.FC<{ 
+    content: string; 
+    sources: Record<string, RAGSource>;
+    onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
+    isFocusModeActive: boolean;
+    focusedHighlight: ActiveHighlight | null;
+}> = ({ content, sources, onCitationClick, isFocusModeActive, focusedHighlight }) => {
+  const parts = parseContent(content, sources);
+  
+  return (
+    <RecursiveRenderer 
+      parts={parts} 
+      sources={sources} 
+      onCitationClick={onCitationClick}
+      isFocusModeActive={isFocusModeActive}
+      focusedHighlight={focusedHighlight}
+    />
+  );
+  
 };
 
 interface QAPairRendererProps {
