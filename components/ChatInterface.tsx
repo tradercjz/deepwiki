@@ -7,7 +7,8 @@ import { CheckIcon } from './icons/CheckIcon';
 type ContentPart =
   | { type: 'text'; content: string }
   | { type: 'citation'; citations: Citation[] }
-  | { type: 'code'; language: string; content: string };
+  | { type: 'code'; language: string; content: string }
+  | { type: 'inline_code'; content: string };
 
 const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, content }) => {
     const [copied, setCopied] = useState(false);
@@ -61,7 +62,7 @@ const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, 
 
 const parseContent = (text: string, sources: Record<string, RAGSource>): ContentPart[] => {
   const parts: ContentPart[] = [];
-  const regex = /\[((?:source:\s*)?.+?)\]|```(\S*)\n?([\s\S]*?)```/g;
+  const regex = /\[((?:source:\s*)?.+?)\]|```(\S*)\n?([\s\S]*?)```|`([^`]+)`/g;
   let lastIndex = 0;
   let match;
   const availableSourcePaths = Object.keys(sources);
@@ -120,6 +121,11 @@ const parseContent = (text: string, sources: Record<string, RAGSource>): Content
         type: 'code',
         language: match[2],
         content: match[3],
+      });
+    } else if (match[4]) {
+      parts.push({
+        type: 'inline_code',
+        content: match[4]
       });
     } else {
         parts.push({ type: 'text', content: match[0] });
@@ -189,6 +195,16 @@ const ContentRenderer: React.FC<{
               </span>
             );
           }
+          case 'inline_code':
+            return (
+              <code 
+                key={index}
+                className="bg-gray-100 dark:bg-gray-700 font-semibold rounded px-1.5 py-0.5 mx-0.5"
+              >
+                {part.content}
+              </code>
+            );
+
           default:
             return null;
         }
@@ -310,17 +326,26 @@ interface ChatInterfaceProps {
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streamingData, onEnterFocusMode, isFocusModeActive, focusedHighlight }) => {
   return (
-    <div className="space-y-12">
+    <div>
       {history.map((qa, index) => (
-        <QAPairRenderer
-          key={qa.id}
-          qa={qa}
-          isLast={index === history.length - 1}
-          streamingData={streamingData}
-          onEnterFocusMode={onEnterFocusMode}
-          isFocusModeActive={isFocusModeActive}
-          focusedHighlight={focusedHighlight}
-        />
+        <div 
+          key={qa.id} 
+          className={
+            // ✨ 3. 对非第一个元素应用样式
+            index > 0 
+              ? "border-t border-gray-200 dark:border-gray-700/50 pt-12 mt-12" 
+              : ""
+          }
+        >
+          <QAPairRenderer
+            qa={qa}
+            isLast={index === history.length - 1}
+            streamingData={streamingData}
+            onEnterFocusMode={onEnterFocusMode}
+            isFocusModeActive={isFocusModeActive}
+            focusedHighlight={focusedHighlight}
+          />
+        </div>
       ))}
     </div>
   );

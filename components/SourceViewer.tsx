@@ -20,7 +20,7 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
   const CONTEXT_LINES = 3;
   const EXPAND_AMOUNT = 10;
 
-  const fullUrl = `https://github.com/tradercjz/documentation/${source.file_path}`;
+  const fullUrl = `https://github.com/tradercjz/documentation/tree/main/${source.file_path}`;
 
   const handleCopy = () => {
     navigator.clipboard.writeText(fullUrl).then(() => {
