@@ -23,7 +23,8 @@ function App() {
   } = useRAGStream();
   
   const mainContentRef = useRef<HTMLDivElement>(null);
-  const [focusedHighlight, setFocusedHighlight] = useState<ActiveHighlight | null>(null);
+  const [activeFocus, setActiveFocus] = useState<{ qaId: string; highlight: ActiveHighlight } | null>(null);
+
 
   const [shareText, setShareText] = useState('Share');
 
@@ -273,14 +274,14 @@ function App() {
     }
   };
 
-  const handleCitationClick = (highlight: ActiveHighlight) => {
-    // 使用 JSON.stringify 来简单地比较两个对象/数组是否相等
-    const isAlreadyFocused = JSON.stringify(highlight) === JSON.stringify(focusedHighlight);
+  const handleCitationClick = (highlight: ActiveHighlight, qaId: string) => {
+    const isAlreadyFocused = activeFocus?.qaId === qaId && 
+                            JSON.stringify(activeFocus?.highlight) === JSON.stringify(highlight);
     
     if (isAlreadyFocused) {
-      setFocusedHighlight(null); // 如果点击的是同一个，则取消高亮
+      setActiveFocus(null); // 点击同一个，取消高亮
     } else {
-      setFocusedHighlight(highlight); // 否则，设置新的高亮
+      setActiveFocus({ qaId, highlight }); // 设置新的高亮目标
     }
   };
 
@@ -324,7 +325,7 @@ function App() {
                   isLoading,
               }}
               onCitationClick={handleCitationClick}
-              focusedHighlight={focusedHighlight}
+              activeFocus={activeFocus}
             />
           </div>
       </main>

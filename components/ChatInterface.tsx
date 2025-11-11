@@ -28,7 +28,6 @@ const CitationSpan: React.FC<{
   citationText: string;
   sources: Record<string, RAGSource>;
   onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
-  isFocusModeActive: boolean;
   focusedHighlight: ActiveHighlight | null;
 }> = ({ citationText, sources, onCitationClick, isFocusModeActive, focusedHighlight }) => {
   const availableSourcePaths = Object.keys(sources);
@@ -261,16 +260,18 @@ interface QAPairRendererProps {
     error: string | null;
     statusMessage: string;
   };
-  onCitationClick: (highlight: ActiveHighlight) => void;
-  focusedHighlight: ActiveHighlight | null;
+  onCitationClick: (highlight: ActiveHighlight, qaId: string) => void;
+  activeFocus: { qaId: string; highlight: ActiveHighlight } | null;
 }
 
-const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onCitationClick, focusedHighlight }) => {
+const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onCitationClick, activeFocus }) => {
     const leftColRef = useRef<HTMLDivElement>(null);
     const rightColRef = useRef<HTMLDivElement>(null);
     const qaPairRef = useRef<HTMLDivElement>(null);
     const { isLoading, error, statusMessage } = streamingData;
-    const isStreamingThisBlock = isLast && isLoading;
+    
+    const isThisQaPairActive = activeFocus?.qaId === qa.id;
+    const focusedHighlightForThisQa = isThisQaPairActive ? activeFocus.highlight : null;
 
     useEffect(() => {
         const setMaxHeight = () => {
@@ -281,7 +282,7 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
             }
         };
 
-        if (qa.answer || isStreamingThisBlock) {
+        if (qa.answer || (isLast && isLoading)) {
             const timer = setTimeout(setMaxHeight, 50);
             window.addEventListener('resize', setMaxHeight);
             return () => {
@@ -289,7 +290,7 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
               window.removeEventListener('resize', setMaxHeight);
             }
         }
-    }, [qa.answer, isStreamingThisBlock]);
+    }, [qa.answer, isLast, isLoading]);
 
     const showSources = Object.keys(qa.sources).length > 0;
 
@@ -302,20 +303,28 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
                     </div>
                 </div>
                 
-                { (qa.answer || isStreamingThisBlock) && (
+                { (qa.answer || (isLast && isLoading)) && (
                     <div className="flex justify-start mt-2">
-                        <div className="bg-white dark:bg-gray-800 p-3 rounded-lg w-full border border-gray-200 dark:border-gray-700 
-                            prose prose-sm dark:prose-invert max-w-none 
-                            prose-h2:border-b prose-h2:pb-2 prose-h2:mb-4
-                            dark:prose-h2:border-gray-600">
+                         <div className="bg-white dark:bg-gray-800 p-3 rounded-lg w-full border border-gray-200 dark:border-gray-700 
+                                      prose prose-sm dark:prose-invert max-w-none 
+                                      prose-h2:border-b prose-h2:pb-2 prose-h2:mb-4
+                                      dark:prose-h2:border-gray-600">
                             <ContentRenderer 
                                 content={qa.answer} 
-                                sources={qa.sources} // 传回 sources
-                                onCitationClick={(highlight, element) => onCitationClick(highlight)}
-                                focusedHighlight={focusedHighlight} 
+                                sources={qa.sources}
+                                // ✨ 关键修正点 ✨
+                                // 我们创建一个新的函数，它接收 ContentRenderer 传递的参数 (highlight, element)，
+                                // 然后调用从 props 接收的 onCitationClick，并附加上我们需要的 qa.id。
+                                onCitationClick={(highlight, element) => {
+                                    if (onCitationClick) { // 安全检查
+                                        onCitationClick(highlight, qa.id);
+                                    }
+                                }}
+                                focusedHighlight={focusedHighlightForThisQa}
+                                // onEnterFocusMode is no longer needed, so this call is now cleaner
                             />
-                            {isStreamingThisBlock && statusMessage && <span className="ml-2 text-gray-500 italic text-xs animate-pulse">{statusMessage}</span>}
-                            {isStreamingThisBlock && !statusMessage && qa.answer && <span className="inline-block w-2 h-4 bg-gray-600 dark:bg-gray-400 animate-pulse ml-1"></span>}
+                            {isLoading && isLast && statusMessage && <span className="ml-2 text-gray-500 italic text-xs animate-pulse">{statusMessage}</span>}
+                            {isLoading && isLast && !statusMessage && qa.answer && <span className="inline-block w-2 h-4 bg-gray-600 dark:bg-gray-400 animate-pulse ml-1"></span>}
                         </div>
                     </div>
                 )}
@@ -334,7 +343,7 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
                     <div ref={rightColRef} className="relative overflow-y-auto">
                         <SourceViewer
                         sources={qa.sources}
-                        highlight={focusedHighlight}
+                        highlight={focusedHighlightForThisQa}
                         activeAnswer={qa.answer}
                         />
                     </div>
@@ -353,11 +362,11 @@ interface ChatInterfaceProps {
     error: string | null;
     isLoading: boolean;
   };
-  onCitationClick: (highlight: ActiveHighlight) => void;
-  focusedHighlight: ActiveHighlight | null;
+  onCitationClick: (highlight: ActiveHighlight, qaId: string) => void;
+  activeFocus: { qaId: string; highlight: ActiveHighlight } | null;
 }
 
-export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streamingData, onCitationClick, focusedHighlight }) => {
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streamingData, onCitationClick, activeFocus }) => {
   return (
     <div>
       {history.map((qa, index) => (
@@ -374,8 +383,8 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streaming
             qa={qa}
             isLast={index === history.length - 1}
             streamingData={streamingData}
-            onCitationClick={onCitationClick}
-            focusedHighlight={focusedHighlight}
+            onCitationClick={onCitationClick} 
+            activeFocus={activeFocus} 
           />
         </div>
       ))}
