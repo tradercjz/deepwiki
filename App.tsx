@@ -3,9 +3,10 @@ import { ChatInterface } from './components/ChatInterface';
 import { QAPair, RAGSource, ActiveHighlight } from './types';
 import { useRAGStream } from './hooks/useRAGStream';
 import { DolphinIcon } from './components/icons/DolphinIcon';
-import { FocusOverlay } from './components/FocusOverlay';
 import { useNavigate, useParams } from 'react-router-dom';
-import { VantaBackground } from './components/VantaBackground';
+import { GenerativeCurvesBackground } from './components/GenerativeCurvesBackground';
+import { GenerativeLogoBackground } from './components/GenerativeLogoBackground';
+
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
 
@@ -344,8 +345,7 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
-      {/* <div className="fixed inset-0 -z-10 h-full w-full bg-white bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] dark:bg-slate-950 dark:bg-[radial-gradient(#2e3c51_1px,transparent_1px)]"></div> */}
-      <VantaBackground />
+      <GenerativeLogoBackground />
       <header className="fixed top-0 left-0 right-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 z-20">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -382,6 +382,7 @@ function App() {
       {!conversationId ? (
         // --- 主页布局 (居中) ---
         <main className="flex-grow pt-16 flex flex-col justify-center items-center p-4">
+          {/* <AnimatedLogo /> */}
           <div className="flex flex-col items-center gap-6 w-full">
             <ChatInputFooter
               question={question}
