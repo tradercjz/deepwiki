@@ -8,6 +8,42 @@ import { useNavigate, useParams } from 'react-router-dom';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
 
+const ChatInputFooter: React.FC<{
+  question: string;
+  setQuestion: (value: string) => void;
+  handleAsk: () => void;
+  handleKeyPress: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
+  isLoading: boolean;
+  className?: string; // 允许父组件传入额外的样式
+}> = ({ question, setQuestion, handleAsk, handleKeyPress, isLoading, className = '' }) => {
+  return (
+    <footer className={`p-4 bg-transparent z-10 ${className}`}>
+      <div className="mx-auto max-w-3xl">
+        <div className="relative bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg">
+          <textarea
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyPress={handleKeyPress}
+            placeholder="Ask a question..."
+            disabled={isLoading}
+            rows={1}
+            className="w-full p-4 pr-14 text-gray-900 dark:text-white bg-transparent border-none rounded-lg focus:ring-0 focus:outline-none transition resize-none"
+          />
+          <button
+            onClick={handleAsk}
+            disabled={isLoading || !question.trim()}
+            className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
+            aria-label="Send message"
+          >
+            <DolphinIcon size={20} mirrored={false} />
+          </button>
+        </div>
+      </div>
+    </footer>
+  );
+};
+
+
 function App() {
   const [history, setHistory] = useState<QAPair[]>([]);
   const [question, setQuestion] = useState('');
@@ -312,12 +348,13 @@ function App() {
       <header className="fixed top-0 left-0 right-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 z-20">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">DolphinMind</h1>
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                <DolphinIcon className="text-gray-400 dark:text-gray-500" />
-                <span className="hidden sm:inline"></span>
-              </div>
+            
+            <div className="flex items-center gap-3">
+              <DolphinIcon size={28} className="text-blue-500" mirrored={true} />
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">DolphinMind</h1>
+            </div>
+
+            <div className="flex items-center gap-4">
 
               <button
                 onClick={handleNewChat}
@@ -326,12 +363,12 @@ function App() {
               >
                 New Chat
               </button>
+
               <button 
                 onClick={handleShare}
-                className={`px-4 py-2 text-sm  font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700 transition-all duration-200 whitespace-nowrap ${
-                  shareText !== 'Share' ? 'w-28' : 'w-20' // 增加一点宽度以容纳更长的文本
+                className={`px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700 transition-all duration-200 whitespace-nowrap ${
+                  shareText !== 'Share' ? 'w-28' : 'w-20'
                 }`}
-                // 如果正在显示提示信息，则禁用按钮
                 disabled={shareText !== 'Share'}
               >
                 {shareText}
@@ -341,47 +378,43 @@ function App() {
         </div>
       </header>
       
-      <main ref={mainContentRef} className="px-4 sm:px-6 lg:px-8 pt-16 flex-grow overflow-y-auto pb-48">
-          <div className="pt-8">
-            <ChatInterface 
-              history={history}
-              streamingData={{
-                  currentAnswer,
-                  sources,
-                  statusMessage,
-                  error,
-                  isLoading,
-              }}
-              onCitationClick={handleCitationClick}
-              activeFocus={activeFocus}
+      {!conversationId ? (
+        // --- 主页布局 (居中) ---
+        <main className="flex-grow pt-16 flex flex-col justify-center items-center p-4">
+          <div className="flex flex-col items-center gap-6 w-full">
+            <ChatInputFooter
+              question={question}
+              setQuestion={setQuestion}
+              handleAsk={handleAsk}
+              handleKeyPress={handleKeyPress}
+              isLoading={isLoading}
+              className="w-full"
             />
           </div>
-      </main>
-
-      <footer className="fixed bottom-0 left-0 right-0 p-4 bg-transparent z-10">
-        <div className="mx-auto max-w-3xl">
-          <div className="relative bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg">
-            <textarea
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="Ask a question..."
-              disabled={isLoading}
-              rows={1}
-              className="w-full p-4 pr-14 text-gray-900 dark:text-white bg-transparent border-none rounded-lg focus:ring-0 focus:outline-none transition resize-none"
-            />
-            <button
-              onClick={handleAsk}
-              disabled={isLoading || !question.trim()}
-              className="absolute right-4 top-1/2 -translate-y-1/2 p-2 rounded-full text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors"
-              aria-label="Send message"
-            >
-              <DolphinIcon size={20} />
-            </button>
-          </div>
-        </div>
-      </footer>
-      
+        </main>
+      ) : (
+        // --- 对话页布局  ---
+        <>
+          <main ref={mainContentRef} className="px-4 sm:px-6 lg:px-8 pt-16 flex-grow overflow-y-auto pb-48">
+              <div className="pt-8">
+                <ChatInterface 
+                  history={history}
+                  streamingData={{ currentAnswer, sources, statusMessage, error, isLoading, }}
+                  onCitationClick={handleCitationClick}
+                  activeFocus={activeFocus}
+                />
+              </div>
+          </main>
+          <ChatInputFooter
+            question={question}
+            setQuestion={setQuestion}
+            handleAsk={handleAsk}
+            handleKeyPress={handleKeyPress}
+            isLoading={isLoading}
+            className="fixed bottom-0 left-0 right-0"
+          />
+        </>
+      )}
     </div>
   );
 }
