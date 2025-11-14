@@ -5,6 +5,7 @@ import { CopyIcon } from './icons/CopyIcon';
 import { CheckIcon } from './icons/CheckIcon';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Link } from 'react-router-dom'; 
 
 type ContentPart =
   | { type: 'text'; content: string }

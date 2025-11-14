@@ -9,22 +9,17 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@react-three/drei": "^10.7.6",
-    "@react-three/fiber": "^9.4.0",
-    "@react-three/postprocessing": "^3.0.4",
     "@types/react-router-dom": "^5.3.3",
+    "path-data-parser": "^0.1.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.9.5",
     "remark-gfm": "^4.0.1",
-    "styled-components": "^6.1.19",
-    "three": "^0.181.1"
+    "svg-parser": "^2.0.4"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
-    "@types/styled-components": "^5.1.35",
-    "@types/three": "^0.181.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"

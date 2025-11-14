@@ -3,10 +3,9 @@ import { ChatInterface } from './components/ChatInterface';
 import { QAPair, RAGSource, ActiveHighlight } from './types';
 import { useRAGStream } from './hooks/useRAGStream';
 import { DolphinIcon } from './components/icons/DolphinIcon';
+import { FocusOverlay } from './components/FocusOverlay';
 import { useNavigate, useParams } from 'react-router-dom';
-import { GenerativeCurvesBackground } from './components/GenerativeCurvesBackground';
-import { GenerativeLogoBackground } from './components/GenerativeLogoBackground';
-
+import { VantaBackground } from './components/VantaBackground';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
 
@@ -17,7 +16,8 @@ const ChatInputFooter: React.FC<{
   handleKeyPress: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void;
   isLoading: boolean;
   className?: string; // 允许父组件传入额外的样式
-}> = ({ question, setQuestion, handleAsk, handleKeyPress, isLoading, className = '' }) => {
+  children?: React.ReactNode;
+}> = ({ question, setQuestion, handleAsk, handleKeyPress, isLoading, className = '', children }) => {
   return (
     <footer className={`p-4 bg-transparent z-10 ${className}`}>
       <div className="mx-auto max-w-3xl">
@@ -31,6 +31,9 @@ const ChatInputFooter: React.FC<{
             rows={1}
             className="w-full p-4 pr-14 text-gray-900 dark:text-white bg-transparent border-none rounded-lg focus:ring-0 focus:outline-none transition resize-none"
           />
+          <div className="absolute left-4 bottom-3 flex items-center">
+            {children}
+          </div>
           <button
             onClick={handleAsk}
             disabled={isLoading || !question.trim()}
@@ -62,7 +65,7 @@ function App() {
   
   const mainContentRef = useRef<HTMLDivElement>(null);
   const [activeFocus, setActiveFocus] = useState<{ qaId: string; highlight: ActiveHighlight } | null>(null);
-
+  const [isDebugMode, setIsDebugMode] = useState(false);
 
   const [shareText, setShareText] = useState('Share');
 
@@ -184,12 +187,16 @@ function App() {
 
         const { conversation_id: newConvId } = await createResponse.json();
         setQuestion('');
-        navigate(`/search/${newConvId}`, { 
-          state: { isNewConversation: true, question: newQuestion } 
+
+        const targetPath = isDebugMode ? `/debug/${newConvId}` : `/search/${newConvId}`;
+        
+        navigate(targetPath, { 
+          // 统一将问题通过 state 传递，这样 DebugPage 和 App 都能接收到
+          state: { 
+              isNewConversation: true, 
+              question: newQuestion 
+          } 
         });
-        
-        
-        // 后续的加载和流式生成将由下面的 useEffect 处理
       } catch (err: any) {
         console.error(err);
         setError(err.message);
@@ -345,7 +352,8 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
-      <GenerativeLogoBackground />
+      {/* <div className="fixed inset-0 -z-10 h-full w-full bg-white bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:16px_16px] dark:bg-slate-950 dark:bg-[radial-gradient(#2e3c51_1px,transparent_1px)]"></div> */}
+      <VantaBackground />
       <header className="fixed top-0 left-0 right-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 z-20">
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
@@ -382,7 +390,6 @@ function App() {
       {!conversationId ? (
         // --- 主页布局 (居中) ---
         <main className="flex-grow pt-16 flex flex-col justify-center items-center p-4">
-          {/* <AnimatedLogo /> */}
           <div className="flex flex-col items-center gap-6 w-full">
             <ChatInputFooter
               question={question}
@@ -392,6 +399,15 @@ function App() {
               isLoading={isLoading}
               className="w-full"
             />
+            <label className="flex items-center space-x-2 cursor-pointer text-sm text-gray-500 dark:text-gray-400">
+                <input
+                  type="checkbox"
+                  checked={isDebugMode}
+                  onChange={(e) => setIsDebugMode(e.target.checked)}
+                  className="form-checkbox h-4 w-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
+                />
+                <span>Debug Mode</span>
+              </label>
           </div>
         </main>
       ) : (

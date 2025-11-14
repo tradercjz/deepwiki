@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import App from './App';
+import { DebugPage } from './components/Debug/DebugPage';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
@@ -15,6 +16,7 @@ root.render(
       <Routes>
         <Route path="/" element={<App />} />
         <Route path="/search/:conversationId" element={<App />} />
+        <Route path="/debug/:conversationId" element={<DebugPage />} />
       </Routes>
     </BrowserRouter>
   </React.StrictMode>
