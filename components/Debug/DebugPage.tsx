@@ -21,6 +21,9 @@ interface RetrievalResult {
 interface DebugData {
     rewritten_query: string;
     bm25_keywords: string;
+    summarized_query: string;
+    negated_bm25_query: string[]; 
+    negated_bm25_results: RetrievalResult[];
     vector_results: RetrievalResult[];
     bm25_results: RetrievalResult[];
     fused_results: RetrievalResult[];
@@ -128,6 +131,22 @@ export const DebugPage: React.FC = () => {
                 <h4 className="font-semibold text-gray-500 dark:text-gray-400">Rewritten Query (for Vector)</h4>
                 <p className="font-mono bg-gray-100 dark:bg-gray-700 p-2 rounded mt-1">{debugData.rewritten_query}</p>
                 </div>
+                <div className="xl:col-span-2">
+                    <h4 className="font-semibold text-gray-500 dark:text-gray-400">Negated BM25 Queries</h4>
+                    <div className="font-mono bg-gray-100 dark:bg-gray-700 p-2 rounded mt-1 h-20 overflow-y-auto">
+                        {debugData.negated_bm25_queries.length > 0 ? (
+                            <ul className="list-disc list-inside">
+                                {debugData.negated_bm25_queries.map((q, i) => <li key={i}>{q}</li>)}
+                            </ul>
+                        ) : (
+                            <p className="italic text-gray-400">No keywords to negate.</p>
+                        )}
+                    </div>
+                    </div>
+                <div>
+                <h4 className="font-semibold text-gray-500 dark:text-gray-400">Summarized Query</h4>
+                <p className="font-mono bg-gray-100 dark:bg-gray-700 p-2 rounded mt-1 h-20 overflow-y-auto">{debugData.summarized_query}</p>
+                </div>
                 <div>
                 <h4 className="font-semibold text-gray-500 dark:text-gray-400">Keywords (for BM25)</h4>
                 <p className="font-mono bg-gray-100 dark:bg-gray-700 p-2 rounded mt-1">{debugData.bm25_keywords}</p>
@@ -137,6 +156,7 @@ export const DebugPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
                 {renderResultsColumn("Vector Results", debugData.vector_results)}
                 {renderResultsColumn("BM25 Results", debugData.bm25_results)}
+                {renderResultsColumn("Negated BM25", debugData.negated_bm25_results)}
                 {renderResultsColumn("Fused Results (RRF)", debugData.fused_results)}
                 {renderResultsColumn("Reranked Final", debugData.reranked_results)}
             </div>
