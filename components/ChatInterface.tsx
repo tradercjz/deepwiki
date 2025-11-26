@@ -165,6 +165,30 @@ const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, 
     );
 };
 
+const ImageGrid: React.FC<{ images: (File | string)[] }> = ({ images }) => {
+    if (!images || images.length === 0) return null;
+
+    return (
+        <div className="flex flex-wrap gap-2 mt-3">
+        {images.map((img, idx) => {
+            // 判断是本地 File 还是远程 URL
+            const src = img instanceof File ? URL.createObjectURL(img) : img;
+            
+            return (
+            <div key={idx} className="relative group">
+                <img 
+                src={src} 
+                alt={`uploaded-${idx}`} 
+                className="h-24 w-24 object-cover rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:opacity-90 transition-opacity"
+                onClick={() => window.open(src, '_blank')} // 点击在新标签页打开大图
+                />
+            </div>
+            );
+        })}
+        </div>
+    );
+};
+
 const ContentRenderer: React.FC<{ 
     content: string; 
     sources: Record<string, RAGSource>;
@@ -256,17 +280,17 @@ const ContentRenderer: React.FC<{
 
 
 interface QAPairRendererProps {
-  qa: QAPair;
-  isLast: boolean;
-  streamingData: {
-    isLoading: boolean;
-    error: string | null;
-    statusMessage: string;
-  };
-  onCitationClick: (highlight: ActiveHighlight, qaId: string) => void;
-  activeFocus: { qaId: string; highlight: ActiveHighlight } | null;
-  history: QAPair[]; 
-  index: number;
+    qa: QAPair;
+    isLast: boolean;
+    streamingData: {
+        isLoading: boolean;
+        error: string | null;
+        statusMessage: string;
+    };
+    onCitationClick: (highlight: ActiveHighlight, qaId: string) => void;
+    activeFocus: { qaId: string; highlight: ActiveHighlight } | null;
+    history: QAPair[]; 
+    index: number;
 }
 
 const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onCitationClick, activeFocus, history, index }) => {
@@ -375,35 +399,35 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
 
     const copyToClipboard = (text: string) => {
       // ✨ 1. 优先使用现代、安全的 Clipboard API
-      if (navigator.clipboard && window.isSecureContext) {
-          navigator.clipboard.writeText(text).catch(err => {
-              console.error("Clipboard API failed:", err);
-          });
-      } else {
-          // ✨ 2. 如果不安全，则回退到传统的 execCommand 方法
-          const textArea = document.createElement('textarea');
-          textArea.value = text;
-          
-          // 样式设置，防止在屏幕上闪烁
-          textArea.style.position = 'fixed';
-          textArea.style.top = '-9999px';
-          textArea.style.left = '-9999px';
-          
-          document.body.appendChild(textArea);
-          textArea.focus();
-          textArea.select();
-          
-          try {
-              const successful = document.execCommand('copy');
-              if (!successful) {
-                  console.error('Fallback: Copy command was not successful.');
-              }
-          } catch (err) {
-              console.error('Fallback copy failed:', err);
-          } finally {
-              document.body.removeChild(textArea);
-          }
-      }
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).catch(err => {
+                console.error("Clipboard API failed:", err);
+            });
+        } else {
+            // ✨ 2. 如果不安全，则回退到传统的 execCommand 方法
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            
+            // 样式设置，防止在屏幕上闪烁
+            textArea.style.position = 'fixed';
+            textArea.style.top = '-9999px';
+            textArea.style.left = '-9999px';
+            
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            
+            try {
+                const successful = document.execCommand('copy');
+                if (!successful) {
+                    console.error('Fallback: Copy command was not successful.');
+                }
+            } catch (err) {
+                console.error('Fallback copy failed:', err);
+            } finally {
+                document.body.removeChild(textArea);
+            }
+        }
     };
 
     const handleCopy = (type: 'response' | 'thread') => {
@@ -443,8 +467,8 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
             const timer = setTimeout(setMaxHeight, 50);
             window.addEventListener('resize', setMaxHeight);
             return () => {
-              clearTimeout(timer);
-              window.removeEventListener('resize', setMaxHeight);
+                clearTimeout(timer);
+                window.removeEventListener('resize', setMaxHeight);
             }
         }
     }, [qa.answer, isLast, isLoading]);
@@ -457,6 +481,11 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
                 <div className="flex justify-start">
                     <div className="bg-blue-500 text-white p-3 rounded-lg w-full">
                         <p>{qa.question}</p>
+                        {qa.images && qa.images.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-blue-400/50">
+                                <ImageGrid images={qa.images} />
+                            </div>
+                        )}
                     </div>
                 </div>
                 

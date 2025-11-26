@@ -16,7 +16,8 @@
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.9.5",
     "remark-gfm": "^4.0.1",
-    "svg-parser": "^2.0.4"
+    "svg-parser": "^2.0.4",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

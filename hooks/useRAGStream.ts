@@ -1,6 +1,7 @@
 
 import { useState, useCallback } from 'react';
 import { QAPair, RAGSource } from '../types';
+import { uploadFileToOSS } from '../utils/ossUpload'; 
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
 
@@ -14,7 +15,8 @@ export const useRAGStream = () => {
   const startStream = useCallback(async (
     question: string,
     conversationId: string, // ID 现在是必须的
-    onComplete: (fullAnswer: string, finalSources: Record<string, RAGSource>, conversationId: string) => void
+    onComplete: (fullAnswer: string, finalSources: Record<string, RAGSource>, conversationId: string) => void,
+    imageFiles: File[]
   ) => {
     setIsLoading(true);
     setError(null);
@@ -26,13 +28,38 @@ export const useRAGStream = () => {
     const finalSources: Record<string, RAGSource> = {};
 
     try {
+      let imageUrls: string[] = [];
+      
+      if (imageFiles && imageFiles.length > 0) {
+        setStatusMessage(`Uploading ${imageFiles.length} images...`);
+        try {
+          // 并行上传所有图片
+          imageUrls = await Promise.all(imageFiles.map(file => uploadFileToOSS(file)));
+          console.log("Images uploaded successfully:", imageUrls);
+        } catch (uploadError) {
+          throw new Error(`Image upload failed: ${(uploadError as Error).message}`);
+        }
+      }
+
+      setStatusMessage('Thinking...'); 
+
+      const formData = new FormData();
+      formData.append('question', question);
+      formData.append('conversation_id', conversationId);
+      // 你可以按需添加其他表单字段，例如：
+      // formData.append('embedding_model', 'qwen_base');
+      // formData.append('vector_store', 'duckdb_store');
+
+      if (imageUrls.length > 0) {
+        // 将 URL 数组序列化为 JSON 字符串发送
+        formData.append('image_urls', JSON.stringify(imageUrls));
+      }
+      
+      // ‼️ 注意：当使用 FormData 时，永远不要手动设置 Content-Type header。
+      // 浏览器会自动设置，并包含正确的 boundary 分隔符。
       const response = await fetch(`${API_BASE_URL}/api/v1/rag/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          question: question,
-          conversation_id: conversationId
-        })
+        body: formData, // 始终传递 formData 对象
       });
 
       if (!response.body) throw new Error('Response body is null.');
