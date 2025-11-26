@@ -54,12 +54,12 @@ export async function uploadFileToOSS(file: File): Promise<string> {
 
     // 4. 直传 OSS
     const response = await fetch(sig.host, {
-      method: 'POST',
-      body: formData,
+        method: 'POST',
+        body: formData,
     });
 
     if (!response.ok) {
-      throw new Error(`OSS upload failed: ${response.statusText}`);
+        throw new Error(`OSS upload failed: ${response.statusText}`);
     }
 
     // 5. 解析结果
