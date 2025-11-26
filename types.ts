@@ -44,6 +44,7 @@ export interface QAPair {
   question: string;
   answer: string;
   sources: Record<string, RAGSource>;
+  images?: (File | string)[];
 }
 
 export type ActiveHighlight = {
