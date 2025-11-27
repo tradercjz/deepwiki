@@ -9,6 +9,8 @@ import { VantaBackground } from './components/VantaBackground';
 import { PaperClipIcon } from './components/icons/PaperClipIcon'; 
 import { useAppContext } from './AppContext';
 import { v4 as uuidv4 } from 'uuid';
+import { HistorySidebar } from './components/HistorySidebar';
+import { historyManager } from './utils/historyManager';
 
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
@@ -102,8 +104,37 @@ function App() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const initialLoadRef = useRef(false);
+  
+  // hoverAreaRef 用于检测鼠标是否在屏幕左边缘
+  const hoverAreaRef = useRef<HTMLDivElement>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false); // 默认桌面端展开
 
   const location = useLocation(); // 引入 location
+
+    const [isPinned, setIsPinned] = useState(false); // 默认固定
+  const [isHoveringSidebar, setIsHoveringSidebar] = useState(false);
+  
+  // 侧边栏是否可见 = 固定 OR 鼠标悬停中
+  const isSidebarVisible = isPinned || isHoveringSidebar;
+
+  // 鼠标进入触发区（左上角汉堡菜单或侧边栏本身）
+  const handleSidebarEnter = () => {
+    if (!isPinned) setIsHoveringSidebar(true);
+  };
+
+  // 鼠标离开侧边栏区域
+  const handleSidebarLeave = () => {
+    if (!isPinned) setIsHoveringSidebar(false);
+  };
+
+  // 切换固定状态
+  const togglePin = () => {
+    const newPinState = !isPinned;
+    setIsPinned(newPinState);
+    // 如果取消固定，虽然 isPinned 变 false，但鼠标还在上面，所以 Hover 应该设为 true 保持显示，直到鼠标移走
+    if (!newPinState) setIsHoveringSidebar(true);
+  };
+
   
   // ✨✨✨ 关键修复 1: 引入防重入锁，用于解决 StrictMode 下 useEffect 执行两次的问题
   const processedNewChatIds = useRef(new Set<string>());
@@ -203,6 +234,7 @@ function App() {
             images: currentImages
           };
           setHistory(currentHist => currentHist.map(p => p.id === qaPairShell.id ? finalQAPair : p));
+          historyManager.saveConversation(qaPairShell.id, newQuestion);
         },
         pendingFiles
       );
@@ -248,118 +280,86 @@ function App() {
   
  useEffect(() => {
     const loadAndProcessConversation = async (id: string) => {
-      // 获取路由传递的状态
       const locationState = location.state as { question?: string; isNewConversation?: boolean } | null;
       const stateQuestion = locationState?.question;
-
-      // 判断是否是新对话跳转过来的
       const isNewChatFlow = (pendingFiles && pendingFiles.length > 0) || (stateQuestion !== undefined && locationState?.isNewConversation);
 
-      // ✨✨✨ 关键逻辑：防重入锁 ✨✨✨
-      // 如果这个 ID 已经处理过 "初始化流程"，就跳过
+      // 1. 处理新会话初始化
       if (isNewChatFlow) {
-        if (processedNewChatIds.current.has(id)) {
-            console.log("🚫 StrictMode blocked duplicate init for:", id);
-            return; // 已经初始化过了，直接返回
-        }
-
-        // 标记为已处理
+        if (processedNewChatIds.current.has(id)) return;
         processedNewChatIds.current.add(id);
-        console.log("🚀 Initializing new chat flow for:", id);
 
-        // 确定问题文本
-        // 这里 stateQuestion 肯定还在，因为我们阻断了第二次执行
         let questionToAsk = stateQuestion;
-        if (!questionToAsk && pendingFiles.length > 0) {
-            questionToAsk = "Analyze the attached file(s).";
-        }
-        // 兜底
+        if (!questionToAsk && pendingFiles.length > 0) questionToAsk = "Analyze the attached file(s).";
         if (questionToAsk === undefined) questionToAsk = "";
 
-        // 构建 UI
         const qaPairShell: QAPair = { 
             id: `qa-${Date.now()}`, 
             question: questionToAsk, 
             answer: '', 
             sources: {},
-            images: pendingFiles // 使用 Context 里的文件
+            images: pendingFiles 
         };
         setHistory([qaPairShell]);
-        
-        // 捕获文件，准备上传
         const filesToUpload = [...pendingFiles];
 
-        // 启动流
         startStream(
           questionToAsk,
           id, 
           (fullAnswer, finalSources) => {
-            const finalQAPair: QAPair = { 
-                ...qaPairShell, 
-                answer: fullAnswer, 
-                sources: finalSources,
-                images: filesToUpload 
-            };
+            const finalQAPair: QAPair = { ...qaPairShell, answer: fullAnswer, sources: finalSources, images: filesToUpload };
             setHistory(currentHist => currentHist.map(p => p.id === qaPairShell.id ? finalQAPair : p));
+            // ✨✨✨ 关键补充：保存新会话到历史记录 ✨✨✨
+            historyManager.saveConversation(id, questionToAsk);
           },
           filesToUpload
         );
 
-        // 清理状态 (只在第一次成功执行后清理)
         setPendingFiles([]); 
         navigate(location.pathname, { replace: true, state: {} });
-        
         return; 
       }
 
-      // --- 下面是加载已有历史记录的逻辑 ---
-      // 同样，如果这个 ID 刚被当做新对话处理过，就不应该再当作旧对话去 fetch
+      // 2. 处理已有会话加载
       if (!processedNewChatIds.current.has(id)) {
         try {
-            console.log("🔄 Fetching existing history for:", id);
             const response = await fetch(`${API_BASE_URL}/api/v1/rag/conversations/${id}`);
             if (!response.ok) {
-                if (response.status !== 404) {
-                    const errData = await response.json();
-                    throw new Error(errData.detail || 'Conversation not found.');
-                }
+                if (response.status !== 404) throw new Error('Conversation not found.');
                 return;
             }
-
             const data = await response.json();
             const loadedHistory = data.history || [];
-            
             const formattedHistory: QAPair[] = [];
+            
+            let firstQuestion = "New Chat"; // 默认标题
+
             for (let i = 0; i < loadedHistory.length; i += 2) {
                 const userMsg = loadedHistory[i];
                 const assistantMsg = loadedHistory[i + 1];
                 if (userMsg?.role === 'user') {
+                    if (i === 0) firstQuestion = userMsg.content; // 记录第一条作为标题
+
                     const sourcesData = assistantMsg?.metadata?.sources || [];
                     const sourcesRecord: Record<string, RAGSource> = {};
-                    for (const backendSource of sourcesData) {
-                        sourcesRecord[backendSource.source] = {
-                            type: 'source',
-                            file_path: backendSource.source,
-                            content: backendSource.content,
-                            score: backendSource.score,
-                            metadata: {
-                                start_line: backendSource.start_line,
-                                end_line: backendSource.end_line,
-                            },
-                        };
+                    for (const s of sourcesData) {
+                        sourcesRecord[s.source] = { type: 'source', file_path: s.source, content: s.content, score: s.score, metadata: { start_line: s.start_line, end_line: s.end_line } };
                     }
                     formattedHistory.push({
                         id: `hist-${i}`,
                         question: userMsg.content,
                         answer: assistantMsg?.content || '',
                         sources: sourcesRecord,
-                        images: userMsg.images || [] // 读取后端的 URL
+                        images: userMsg.images || []
                     });
                 }
             }
             setHistory(formattedHistory);
+            
+            // ✨✨✨ 关键补充：加载成功后，默默保存到本地历史（如果是还没存过的） ✨✨✨
+            historyManager.saveConversation(id, firstQuestion);
 
-            // 继续回答逻辑
+            // 继续未完成的对话
             const lastMessage = loadedHistory[loadedHistory.length - 1];
             if (lastMessage && lastMessage.role === 'user') {
                 const qaPairToUpdate = formattedHistory[formattedHistory.length - 1];
@@ -367,33 +367,21 @@ function App() {
                     qaPairToUpdate.question,
                     id,
                     (fullAnswer, finalSources) => {
-                        const finalQAPair: QAPair = {
-                            id: qaPairToUpdate.id,
-                            question: qaPairToUpdate.question,
-                            answer: fullAnswer,
-                            sources: finalSources,
-                            images: qaPairToUpdate.images
-                        };
+                        const finalQAPair: QAPair = { ...qaPairToUpdate, answer: fullAnswer, sources: finalSources };
                         setHistory(prev => prev.map(p => (p.id === qaPairToUpdate.id ? finalQAPair : p)));
                     },
                     [] 
                 );
             }
-
         } catch (err: any) {
-            console.error('Failed to load conversation:', err);
+            console.error(err);
             setError(err.message);
-            // navigate('/'); // 建议注释掉，方便调试错误
         }
       }
     };
 
-    if (conversationId) {
-      loadAndProcessConversation(conversationId);
-    } else {
-      setHistory([]);
-      setError(null);
-    }
+    if (conversationId) loadAndProcessConversation(conversationId);
+    else { setHistory([]); setError(null); }
   }, [conversationId, navigate, startStream, pendingFiles, setPendingFiles, location.state]);
 
   // useEffect 2: 负责将流式数据实时更新到UI
@@ -452,11 +440,42 @@ function App() {
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
       <VantaBackground />
-      <header className="fixed top-0 left-0 right-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 z-20">
+      <div 
+        onMouseLeave={handleSidebarLeave} 
+        className="fixed top-0 left-0 h-full z-40 pointer-events-none" // pointer-events-none 允许点击穿透到后面（当侧边栏收起时）
+      >
+        {/* 恢复子元素的 pointer-events */}
+        <div className="pointer-events-auto h-full">
+            <HistorySidebar 
+                isOpen={isSidebarVisible} 
+                isPinned={isPinned}
+                onTogglePin={togglePin}
+                onClose={() => setIsHoveringSidebar(false)} 
+            />
+        </div>
+      </div>
+
+
+      {/* Header: 动态 padding-left */}
+      <header className={`
+        fixed top-0 left-0 right-0 
+        bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-800 
+        z-20 transition-all duration-300
+        ${isPinned ? 'pl-64' : 'pl-0'} 
+      `}>
         <div className="px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             
             <div className="flex items-center gap-3">
+              {/* ✨ 左上角触发器：汉堡菜单 ✨ */}
+              {/* 当侧边栏固定时，此按钮可以隐藏，或者保留作为视觉平衡。这里我们保留，鼠标移上去也会触发悬浮 */}
+              <div 
+                onMouseEnter={handleSidebarEnter}
+                className={`p-2 -ml-2 rounded-md cursor-pointer transition-opacity duration-300 ${isSidebarVisible ? 'opacity-0 pointer-events-none' : 'opacity-100 hover:bg-gray-100 dark:hover:bg-slate-800'}`}
+              >
+                 {/* 汉堡图标 */}
+                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-600 dark:text-gray-300"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+              </div>
               <DolphinIcon size={28} className="text-blue-500" mirrored={true} />
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">DolphinMind</h1>
             </div>
@@ -484,7 +503,7 @@ function App() {
           </div>
         </div>
       </header>
-      
+      <div className={`flex-grow pt-16 flex flex-col transition-all duration-300 ${isSidebarOpen ? 'pl-64' : 'pl-0'}`}>
       {!conversationId ? (
         // --- 主页布局 ---
         <main className="flex-grow pt-16 flex flex-col justify-center items-center p-4">
@@ -539,6 +558,7 @@ function App() {
           />
         </>
       )}
+      </div>
     </div>
   );
 }
