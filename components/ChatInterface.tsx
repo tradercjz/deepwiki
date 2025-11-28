@@ -165,26 +165,50 @@ const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, 
     );
 };
 
+const ImageThumbnail: React.FC<{ image: File | string }> = ({ image }) => {
+  const [src, setSrc] = useState<string>('');
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+
+    if (image instanceof File) {
+      // 1. 只有当 image 文件对象改变时，才创建新的 URL
+      objectUrl = URL.createObjectURL(image);
+      setSrc(objectUrl);
+    } else {
+      setSrc(image);
+    }
+
+    // 2. ✨ 关键：组件卸载或 image 变化时，销毁旧的 URL，释放内存！
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [image]);
+
+  if (!src) return <div className="h-24 w-24 bg-gray-200 animate-pulse rounded-lg" />;
+
+  return (
+    <div className="relative group">
+      <img 
+        src={src} 
+        alt="attachment" 
+        className="h-24 w-24 object-cover rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:opacity-90 transition-opacity"
+        onClick={() => window.open(src, '_blank')} 
+      />
+    </div>
+  );
+};
+
 const ImageGrid: React.FC<{ images: (File | string)[] }> = ({ images }) => {
     if (!images || images.length === 0) return null;
 
     return (
         <div className="flex flex-wrap gap-2 mt-3">
-        {images.map((img, idx) => {
-            // 判断是本地 File 还是远程 URL
-            const src = img instanceof File ? URL.createObjectURL(img) : img;
-            
-            return (
-            <div key={idx} className="relative group">
-                <img 
-                src={src} 
-                alt={`uploaded-${idx}`} 
-                className="h-24 w-24 object-cover rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:opacity-90 transition-opacity"
-                onClick={() => window.open(src, '_blank')} // 点击在新标签页打开大图
-                />
-            </div>
-            );
-        })}
+        {images.map((img, idx) => (
+            <ImageThumbnail key={idx} image={img} />
+        ))}
         </div>
     );
 };
@@ -277,6 +301,7 @@ const ContentRenderer: React.FC<{
     />
   );
 };
+
 
 
 interface QAPairRendererProps {
