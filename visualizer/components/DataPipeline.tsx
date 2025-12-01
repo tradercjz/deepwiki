@@ -141,6 +141,9 @@ export const DataPipeline: React.FC<DataPipelineProps> = ({
 const ProcessingLines = ({ activeIndex, results, funcWindow, funcType, transition, mode }: any) => {
   const xPos = activeIndex * SPACING.x;
   const currentData = results[activeIndex];
+
+  // 如果因为模式切换导致索引越界，currentData 为 undefined，直接不渲染
+  if (!currentData) return null;
   
   // -- Mode 1: Conditional Iterate --
   if (mode === 'conditionalIterate') {

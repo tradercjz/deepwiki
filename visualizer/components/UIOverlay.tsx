@@ -130,69 +130,8 @@ select * from output1;`;
 
   return (
     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6">
-      
-      {/* Sidebar / Function Selector */}
-      <div className="absolute left-6 top-6 bottom-24 w-16 hover:w-64 transition-all duration-300 group z-50 pointer-events-auto flex flex-col">
-        <div className="bg-gray-900/95 border-r border-y border-gray-700 rounded-r-xl rounded-l-md h-full shadow-2xl overflow-hidden backdrop-blur-md flex flex-col">
-           <div className="p-4 border-b border-gray-800 flex items-center space-x-3">
-              <div className="w-8 h-8 rounded bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center shrink-0">
-                  <span className="font-bold text-white text-xs">FN</span>
-              </div>
-              <span className="font-bold text-cyan-400 whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                Function Library
-              </span>
-           </div>
-           
-           <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-              <button 
-                onClick={() => setMode('conditionalIterate')}
-                className={`w-full flex items-center p-2 rounded-lg transition-colors ${mode === 'conditionalIterate' ? 'bg-cyan-900/40 text-cyan-400 border border-cyan-800' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-              >
-                  <span className="text-lg w-8 text-center shrink-0">C</span>
-                  <div className="flex flex-col items-start ml-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
-                      <span className="text-sm font-semibold">conditionalIterate</span>
-                      <span className="text-[10px] text-gray-500">Branching Logic (RSE)</span>
-                  </div>
-              </button>
-
-              <button 
-                onClick={() => setMode('tmFunction')}
-                className={`w-full flex items-center p-2 rounded-lg transition-colors ${mode === 'tmFunction' ? 'bg-cyan-900/40 text-cyan-400 border border-cyan-800' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-              >
-                  <span className="text-lg w-8 text-center shrink-0">T</span>
-                  <div className="flex flex-col items-start ml-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
-                      <span className="text-sm font-semibold">tmsum</span>
-                      <span className="text-[10px] text-gray-500">Time-Based Window</span>
-                  </div>
-              </button>
-
-              <button 
-                onClick={() => setMode('pivot')}
-                className={`w-full flex items-center p-2 rounded-lg transition-colors ${mode === 'pivot' ? 'bg-cyan-900/40 text-cyan-400 border border-cyan-800' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-              >
-                  <span className="text-lg w-8 text-center shrink-0">P</span>
-                  <div className="flex flex-col items-start ml-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
-                      <span className="text-sm font-semibold">pivot</span>
-                      <span className="text-[10px] text-gray-500">Matrix Transpose</span>
-                  </div>
-              </button>
-
-              <button 
-                onClick={() => setMode('createTimeSeriesEngine')}
-                className={`w-full flex items-center p-2 rounded-lg transition-colors ${mode === 'createTimeSeriesEngine' ? 'bg-cyan-900/40 text-cyan-400 border border-cyan-800' : 'text-gray-400 hover:bg-gray-800 hover:text-white'}`}
-              >
-                  <span className="text-lg w-8 text-center shrink-0">E</span>
-                  <div className="flex flex-col items-start ml-2 opacity-0 group-hover:opacity-100 transition-opacity duration-300 whitespace-nowrap">
-                      <span className="text-sm font-semibold">TS Engine</span>
-                      <span className="text-[10px] text-gray-500">Real-time Aggregation</span>
-                  </div>
-              </button>
-           </nav>
-        </div>
-      </div>
-
       {/* Main Header & Controls (Pushed right to avoid sidebar) */}
-      <header className="flex justify-between items-start pointer-events-auto pl-20">
+     <header className="flex justify-between items-start pointer-events-auto w-full">
         <div className="flex flex-col items-start space-y-4">
           <div>
             <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-yellow-400 tracking-tighter filter drop-shadow-[0_0_10px_rgba(0,255,100,0.5)] uppercase">
@@ -218,7 +157,7 @@ select * from output1;`;
         </div>
         
         {/* Parameter Control Panel (Dynamic) */}
-        <div className="bg-gray-900/90 backdrop-blur-md p-4 border border-gray-700 rounded-lg shadow-xl w-80 space-y-3">
+       <div className="bg-gray-900/90 backdrop-blur-md p-4 border border-gray-700 rounded-lg shadow-xl w-80 space-y-3 mr-12">
             <div className="text-xs font-bold text-gray-500 uppercase border-b border-gray-700 pb-1 mb-2">Parameters</div>
             
             {mode === 'conditionalIterate' && (
