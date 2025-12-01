@@ -11,6 +11,8 @@ import { useAppContext } from './AppContext';
 import { v4 as uuidv4 } from 'uuid';
 import { HistorySidebar } from './components/HistorySidebar';
 import { historyManager } from './utils/historyManager';
+import { VisualizerModal } from './components/VisualizerModal';
+import { AppMode } from './visualizer/constants';
 
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
@@ -34,8 +36,26 @@ const ChatInputFooter: React.FC<{
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
-      onFilesSelected(Array.from(files));
+      const fileArray = Array.from(files);
+
+      // ✨✨✨ 核心修改：前端校验文件类型 ✨✨✨
+      const validImages = fileArray.filter(file => {
+        // 检查 MIME type 是否以 'image/' 开头
+        return file.type.startsWith('image/');
+      });
+
+      // 如果有文件被过滤掉了（说明用户选了非图片）
+      if (validImages.length < fileArray.length) {
+        alert("仅支持上传图片文件 (JPG, PNG, GIF, WEBP 等)。");
+      }
+
+      // 只有存在有效图片时才进行后续操作
+      if (validImages.length > 0) {
+        onFilesSelected(validImages);
+      }
     }
+    
+    // 重置 input，防止选择同一张图片不触发 onChange
     if (event.target) {
       event.target.value = "";
     }
@@ -437,9 +457,23 @@ function App() {
     navigate('/');
   };
 
+  const [visualizerMode, setVisualizerMode] = useState<AppMode | null>(null);
+  const [isVisualizerOpen, setIsVisualizerOpen] = useState(false);
+
+  const handleShowVisualizer = (mode: AppMode) => {
+    setVisualizerMode(mode);
+    setIsVisualizerOpen(true);
+  };
+
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
       <VantaBackground />
+      <VisualizerModal 
+        isOpen={isVisualizerOpen} 
+        mode={visualizerMode} 
+        onClose={() => setIsVisualizerOpen(false)} 
+      />
+
       <div 
         onMouseLeave={handleSidebarLeave} 
         className="fixed top-0 left-0 h-full z-40 pointer-events-none" // pointer-events-none 允许点击穿透到后面（当侧边栏收起时）
@@ -541,6 +575,7 @@ function App() {
                   streamingData={{ currentAnswer, sources, statusMessage, error, isLoading }}
                   onCitationClick={handleCitationClick}
                   activeFocus={activeFocus}
+                  onShowVisualizer={handleShowVisualizer}
                 />
               </div>
           </main>

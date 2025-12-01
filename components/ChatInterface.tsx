@@ -6,6 +6,16 @@ import { CheckIcon } from './icons/CheckIcon';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom'; 
+import { AppMode } from '../visualizer/constants';
+
+const FUNCTION_TO_MODE_MAP: Record<string, AppMode> = {
+    'conditionalIterate': 'conditionalIterate',
+    'createReactiveStateEngine': 'conditionalIterate',
+    'tmsum': 'tmFunction',
+    'pivot': 'pivot',
+    'createTimeSeriesEngine': 'createTimeSeriesEngine',
+    'dailyAlignedBar': 'createTimeSeriesEngine', // 关联相关函数
+};
 
 type ContentPart =
   | { type: 'text'; content: string }
@@ -23,6 +33,7 @@ interface ContentRendererProps {
   onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
   isFocusModeActive: boolean;
   focusedHighlight: ActiveHighlight | null;
+  onShowVisualizer?: (mode: AppMode) => void; 
 }
 
 const CitationSpan: React.FC<{
@@ -115,8 +126,23 @@ const CitationSpan: React.FC<{
   }
 };
 
-const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, content }) => {
+const CodeBlock: React.FC<{ 
+    language: string; 
+    content: string; 
+    onShowVisualizer?: (mode: AppMode) => void;  
+}> = ({ language, content, onShowVisualizer }) => {
     const [copied, setCopied] = useState(false);
+
+    const detectedMode = React.useMemo(() => {
+        for (const [func, mode] of Object.entries(FUNCTION_TO_MODE_MAP)) {
+            if (content.includes(func)) {
+                return mode;
+            }
+        }
+        return null;
+    }, [content]);
+
+    console.log("Content:", content, "Detected Mode:", detectedMode);
 
     const handleCopy = () => {
         if (navigator.clipboard && window.isSecureContext) {
@@ -151,7 +177,22 @@ const CodeBlock: React.FC<{ language: string; content: string }> = ({ language, 
     return (
         <div className="my-4 bg-gray-100 dark:bg-slate-800 rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 font-mono">
             <div className="flex justify-between items-center px-4 py-2 bg-gray-200 dark:bg-slate-700/50">
-                <span className="text-xs font-sans text-gray-600 dark:text-gray-400">{language || 'code'}</span>
+                <div className="flex items-center gap-3">
+                    <span className="text-xs font-sans text-gray-600 dark:text-gray-400">{language || 'code'}</span>
+                    
+                    {/* ✨ 3D 特效按钮 ✨ */}
+                    {detectedMode && onShowVisualizer && (
+                        <button
+                            onClick={() => onShowVisualizer(detectedMode)}
+                            className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-bold text-white bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 rounded-full transition-all shadow-sm hover:shadow-md animate-pulse"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3">
+                                <path fillRule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clipRule="evenodd" />
+                            </svg>
+                            3D Demo
+                        </button>
+                    )}
+                </div>
                 <button
                     onClick={handleCopy}
                     className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 font-sans"
@@ -218,7 +259,8 @@ const ContentRenderer: React.FC<{
     sources: Record<string, RAGSource>;
     onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
     focusedHighlight: ActiveHighlight | null;
-}> = ({ content, sources, onCitationClick, focusedHighlight }) => {
+    onShowVisualizer: (mode: AppMode) => void;
+}> = ({ content, sources, onCitationClick, focusedHighlight,onShowVisualizer }) => {
 
   // ✨ 步骤 1: 创建一个通用的、可重用的函数来处理子节点
   // 这个函数的核心逻辑和我们之前讨论的一样，但现在它可以被任何组件调用
@@ -282,7 +324,11 @@ const ContentRenderer: React.FC<{
         code({ node, inline, className, children, ...props }) {
           const match = /language-(\w+)/.exec(className || '');
           return !inline && match ? (
-            <CodeBlock language={match[1]} content={String(children).replace(/\n$/, '')} />
+            <CodeBlock 
+                language={match[1]} 
+                content={String(children).replace(/\n$/, '')} 
+                onShowVisualizer={onShowVisualizer}
+            />
           ) : ( <code className="bg-gray-100 dark:bg-gray-700 font-semibold rounded px-1.5 py-0.5 mx-0.5" {...props}>{children}</code> );
         },
         table: ({ node, ...props }) => <table className="w-full border-collapse border border-gray-300 dark:border-gray-600 my-4" {...props} />,
@@ -316,9 +362,10 @@ interface QAPairRendererProps {
     activeFocus: { qaId: string; highlight: ActiveHighlight } | null;
     history: QAPair[]; 
     index: number;
+    onShowVisualizer?: (mode: AppMode) => void;
 }
 
-const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onCitationClick, activeFocus, history, index }) => {
+const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onCitationClick, activeFocus, history, index, onShowVisualizer }) => {
     const leftColRef = useRef<HTMLDivElement>(null);
     const rightColRef = useRef<HTMLDivElement>(null);
     const qaPairRef = useRef<HTMLDivElement>(null);
@@ -532,7 +579,7 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
                                     }
                                 }}
                                 focusedHighlight={focusedHighlightForThisQa}
-                                // onEnterFocusMode is no longer needed, so this call is now cleaner
+                                onShowVisualizer={onShowVisualizer} 
                             />
                             {isLoading && isLast && statusMessage && <span className="ml-2 text-gray-500 italic text-xs animate-pulse">{statusMessage}</span>}
                             {isLoading && isLast && !statusMessage && qa.answer && <span className="inline-block w-2 h-4 bg-gray-600 dark:bg-gray-400 animate-pulse ml-1"></span>}
@@ -602,9 +649,10 @@ interface ChatInterfaceProps {
   };
   onCitationClick: (highlight: ActiveHighlight, qaId: string) => void;
   activeFocus: { qaId: string; highlight: ActiveHighlight } | null;
+  onShowVisualizer?: (mode: AppMode) => void;
 }
 
-export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streamingData, onCitationClick, activeFocus }) => {
+export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streamingData, onCitationClick, activeFocus, onShowVisualizer }) => {
   return (
     <div>
       {history.map((qa, index) => (
@@ -625,6 +673,7 @@ export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streaming
             activeFocus={activeFocus}
             history={history}
             index={index}
+            onShowVisualizer={onShowVisualizer} 
           />
         </div>
       ))}
