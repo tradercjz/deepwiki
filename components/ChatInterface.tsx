@@ -34,6 +34,7 @@ interface ContentRendererProps {
   isFocusModeActive: boolean;
   focusedHighlight: ActiveHighlight | null;
   onShowVisualizer?: (mode: AppMode) => void; 
+  isStreaming?: boolean; 
 }
 
 const CitationSpan: React.FC<{
@@ -129,8 +130,9 @@ const CitationSpan: React.FC<{
 const CodeBlock: React.FC<{ 
     language: string; 
     content: string; 
-    onShowVisualizer?: (mode: AppMode) => void;  
-}> = ({ language, content, onShowVisualizer }) => {
+    onShowVisualizer?: (mode: AppMode) => void;
+    isStreaming?: boolean;
+}> = ({ language, content, onShowVisualizer, isStreaming }) => {
     const [copied, setCopied] = useState(false);
 
     const detectedMode = React.useMemo(() => {
@@ -184,7 +186,14 @@ const CodeBlock: React.FC<{
                     {detectedMode && onShowVisualizer && (
                         <button
                             onClick={() => onShowVisualizer(detectedMode)}
-                            className="flex items-center gap-1.5 px-2 py-0.5 text-xs font-bold text-white bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 rounded-full transition-all shadow-sm hover:shadow-md animate-pulse"
+                            disabled={isStreaming} // ✨ 禁用按钮
+                            className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-bold text-white rounded-full transition-all shadow-sm 
+                                ${isStreaming 
+                                    ? 'bg-gray-400 cursor-not-allowed opacity-70' // ✨ 流式传输时的样式：灰色、不可点
+                                    : 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-600 hover:to-cyan-600 hover:shadow-md animate-pulse cursor-pointer' // ✨ 正常样式
+                                }
+                            `}
+                            title={isStreaming ? "Waiting for generation to complete..." : "Launch 3D Visualization"}
                         >
                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3">
                                 <path fillRule="evenodd" d="M4.5 5.653c0-1.426 1.529-2.33 2.779-1.643l11.54 6.348c1.295.712 1.295 2.573 0 3.285L7.28 19.991c-1.25.687-2.779-.217-2.779-1.643V5.653z" clipRule="evenodd" />
@@ -260,7 +269,8 @@ const ContentRenderer: React.FC<{
     onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
     focusedHighlight: ActiveHighlight | null;
     onShowVisualizer: (mode: AppMode) => void;
-}> = ({ content, sources, onCitationClick, focusedHighlight,onShowVisualizer }) => {
+    isStreaming: boolean;
+}> = ({ content, sources, onCitationClick, focusedHighlight,onShowVisualizer,isStreaming }) => {
 
   // ✨ 步骤 1: 创建一个通用的、可重用的函数来处理子节点
   // 这个函数的核心逻辑和我们之前讨论的一样，但现在它可以被任何组件调用
@@ -328,6 +338,7 @@ const ContentRenderer: React.FC<{
                 language={match[1]} 
                 content={String(children).replace(/\n$/, '')} 
                 onShowVisualizer={onShowVisualizer}
+                isStreaming={isStreaming}
             />
           ) : ( <code className="bg-gray-100 dark:bg-gray-700 font-semibold rounded px-1.5 py-0.5 mx-0.5" {...props}>{children}</code> );
         },
@@ -580,6 +591,7 @@ const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingDa
                                 }}
                                 focusedHighlight={focusedHighlightForThisQa}
                                 onShowVisualizer={onShowVisualizer} 
+                                isStreaming={isStreamingThisBlock} 
                             />
                             {isLoading && isLast && statusMessage && <span className="ml-2 text-gray-500 italic text-xs animate-pulse">{statusMessage}</span>}
                             {isLoading && isLast && !statusMessage && qa.answer && <span className="inline-block w-2 h-4 bg-gray-600 dark:bg-gray-400 animate-pulse ml-1"></span>}
