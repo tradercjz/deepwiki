@@ -32,30 +32,38 @@ const ChatInputFooter: React.FC<{
   imageFiles, onFilesSelected, onRemoveFile, className = ''
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [showIntroAnim, setShowIntroAnim] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowIntroAnim(false);
+    }, 1000); // 1秒后消失
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
+  }, [question]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
     if (files && files.length > 0) {
       const fileArray = Array.from(files);
+      const validImages = fileArray.filter(file => file.type.startsWith('image/'));
 
-      // ✨✨✨ 核心修改：前端校验文件类型 ✨✨✨
-      const validImages = fileArray.filter(file => {
-        // 检查 MIME type 是否以 'image/' 开头
-        return file.type.startsWith('image/');
-      });
-
-      // 如果有文件被过滤掉了（说明用户选了非图片）
       if (validImages.length < fileArray.length) {
         alert("仅支持上传图片文件 (JPG, PNG, GIF, WEBP 等)。");
       }
 
-      // 只有存在有效图片时才进行后续操作
       if (validImages.length > 0) {
         onFilesSelected(validImages);
       }
     }
-    
-    // 重置 input，防止选择同一张图片不触发 onChange
     if (event.target) {
       event.target.value = "";
     }
@@ -64,34 +72,71 @@ const ChatInputFooter: React.FC<{
   return (
     <footer className={`p-4 bg-transparent z-10 ${className}`}>
       <div className="mx-auto max-w-3xl">
-        <div className="relative bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg flex flex-col">
-          {imageFiles.length > 0 && (
-            <div className="p-2 border-b border-gray-200 dark:border-gray-700">
-              <div className="max-h-36 overflow-y-auto space-y-2 pr-2">
-                {imageFiles.map((file, index) => (
-                  <div key={`${file.name}-${index}`} className="flex items-center justify-between bg-gray-100 dark:bg-slate-800 p-1.5 rounded-md">
-                    <div className="flex items-center gap-2 overflow-hidden">
-                      <img src={URL.createObjectURL(file)} alt={file.name} className="h-10 w-10 object-cover rounded flex-shrink-0" />
-                      <span className="text-sm text-gray-600 dark:text-gray-400 truncate" title={file.name}>{file.name}</span>
+        
+        <div className="relative group">
+          
+          {/* ✨ 1. 流光层：Google 经典四色 (蓝->红->黄->绿) */}
+          <div 
+            className={`absolute -inset-[3px] rounded-xl overflow-hidden transition-opacity duration-1000 pointer-events-none ${showIntroAnim ? 'opacity-100' : 'opacity-0'}`}
+          >
+            {/* 
+               渐变解释:
+               50%: 透明 (尾巴)
+               65%: Google Blue (#4285F4)
+               78%: Google Red (#EA4335)
+               90%: Google Yellow (#FBBC05)
+               100%: Google Green (#34A853) (头部)
+            */}
+            <div className="absolute inset-[-100%] animate-[spin_1s_linear_infinite] bg-[conic-gradient(from_90deg_at_50%_50%,#00000000_50%,#4285F4_65%,#EA4335_78%,#FBBC05_90%,#34A853_100%)]" />
+          </div>
+
+          {/* ✨ 2. 光晕层：匹配的红黄蓝渐变 */}
+          <div 
+            className={`absolute -inset-[2px] rounded-xl bg-gradient-to-r from-[#4285F4] via-[#EA4335] to-[#FBBC05] blur opacity-40 transition-opacity duration-1000 pointer-events-none ${showIntroAnim ? 'opacity-40' : 'opacity-0'}`}
+          ></div>
+
+          {/* 输入框主体 */}
+          <div className="relative z-10 bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg flex flex-col">
+            {imageFiles.length > 0 && (
+              <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+                <div className="max-h-36 overflow-y-auto space-y-2 pr-2">
+                  {imageFiles.map((file, index) => (
+                    <div key={`${file.name}-${index}`} className="flex items-center justify-between bg-gray-100 dark:bg-slate-800 p-1.5 rounded-md">
+                      <div className="flex items-center gap-2 overflow-hidden">
+                        <img src={URL.createObjectURL(file)} alt={file.name} className="h-10 w-10 object-cover rounded flex-shrink-0" />
+                        <span className="text-sm text-gray-600 dark:text-gray-400 truncate" title={file.name}>{file.name}</span>
+                      </div>
+                      <button onClick={() => onRemoveFile(index)} className="p-1 text-gray-400 hover:text-red-500 rounded-full flex-shrink-0 transition-colors" aria-label={`Remove ${file.name}`} disabled={isLoading}>
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
+                      </button>
                     </div>
-                    <button onClick={() => onRemoveFile(index)} className="p-1 text-gray-400 hover:text-red-500 rounded-full flex-shrink-0 transition-colors" aria-label={`Remove ${file.name}`} disabled={isLoading}>
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
-                    </button>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-          <div className="flex items-center p-2">
-            <textarea value={question} onChange={(e) => setQuestion(e.target.value)} onKeyPress={handleKeyPress} placeholder="Ask a question..." disabled={isLoading} rows={1} className="w-full pl-2 text-gray-900 dark:text-white bg-transparent border-none rounded-lg focus:ring-0 focus:outline-none resize-none" />
-            <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" multiple />
-            <div className="flex items-center gap-2 pr-2">
-              <button onClick={() => fileInputRef.current?.click()} disabled={isLoading} className="p-2 text-gray-500 hover:text-blue-500 dark:text-gray-400 dark:hover:text-blue-400 rounded-full transition-colors" aria-label="Attach images">
-                <PaperClipIcon />
-              </button>
-              <button onClick={handleAsk} disabled={isLoading || (!question.trim() && imageFiles.length === 0)} className="p-2 rounded-full text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors" aria-label="Send message">
-                <DolphinIcon size={20} mirrored={false} />
-              </button>
+            )}
+            
+            <div className="flex items-end p-2 gap-2">
+              <textarea 
+                  ref={textareaRef}
+                  value={question} 
+                  onChange={(e) => setQuestion(e.target.value)} 
+                  onKeyPress={handleKeyPress} 
+                  placeholder="Ask a question..." 
+                  disabled={isLoading} 
+                  rows={1} 
+                  className="w-full py-3 pl-2 text-gray-900 dark:text-white bg-transparent border-none rounded-lg focus:ring-0 focus:outline-none resize-none max-h-48 overflow-y-auto leading-relaxed" 
+              />
+              
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" multiple />
+              
+              <div className="flex items-center gap-2 pb-1.5 flex-shrink-0">
+                <button onClick={() => fileInputRef.current?.click()} disabled={isLoading} className="p-2 text-gray-500 hover:text-blue-500 dark:text-gray-400 dark:hover:text-blue-400 rounded-full transition-colors" aria-label="Attach images">
+                  <PaperClipIcon />
+                </button>
+                <button onClick={handleAsk} disabled={isLoading || (!question.trim() && imageFiles.length === 0)} className="p-2 rounded-full text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors" aria-label="Send message">
+                  <DolphinIcon size={20} mirrored={false} />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -99,7 +144,6 @@ const ChatInputFooter: React.FC<{
     </footer>
   );
 };
-
 function App() {
   const [history, setHistory] = useState<QAPair[]>([]);
   const [question, setQuestion] = useState('');
