@@ -457,23 +457,29 @@ function App() {
     navigate('/');
   };
 
-  const [visualizerMode, setVisualizerMode] = useState<AppMode | null>(null);
+  const [visualizerConfig, setVisualizerConfig] = useState<{
+    pluginId: string;
+    initialParams?: any;
+  } | null>(null);
+
   const [isVisualizerOpen, setIsVisualizerOpen] = useState(false);
 
-  const handleShowVisualizer = (mode: AppMode) => {
-    setVisualizerMode(mode);
+
+  const handleShowVisualizer = (pluginId: string, initialParams?: any) => {
+    setVisualizerConfig({ pluginId, initialParams });
     setIsVisualizerOpen(true);
   };
+
 
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
       <VantaBackground />
       <VisualizerModal 
         isOpen={isVisualizerOpen} 
-        mode={visualizerMode} 
+        pluginId={visualizerConfig?.pluginId} 
+        initialParams={visualizerConfig?.initialParams}
         onClose={() => setIsVisualizerOpen(false)} 
       />
-
       <div 
         onMouseLeave={handleSidebarLeave} 
         className="fixed top-0 left-0 h-full z-40 pointer-events-none" // pointer-events-none 允许点击穿透到后面（当侧边栏收起时）

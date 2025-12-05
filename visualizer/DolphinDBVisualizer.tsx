@@ -1,172 +1,128 @@
-// src/visualizer/DolphinDBVisualizer.tsx
-
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { Scene } from './components/Scene';
-import { UIOverlay } from './components/UIOverlay'; // ✨ 引入控制层
-import { DATA_INPUTS, TM_INPUTS, PIVOT_DATA, TS_ENGINE_DATA, DEFAULTS, FuncType, AppMode } from './constants';
-import { useConditionalIterateLogic } from './hooks/useConditionalIterate';
-import { useTmSeriesLogic } from './hooks/useTmSeriesLogic';
-import { usePivotLogic } from './hooks/usePivotLogic';
-import { useTimeSeriesEngineLogic } from './hooks/useTimeSeriesEngineLogic';
+import { OrbitControls, Stars, ContactShadows } from '@react-three/drei';
+import { EffectComposer, Bloom, Noise, Vignette } from '@react-three/postprocessing';
+import { getPlugin } from './pluginRegistry';
 
 interface VisualizerProps {
-  initialMode: AppMode;
+  pluginId: string;
+  initialParams?: any; // ✨ 关键：允许外部传入初始参数（例如 func: 'mavg'）
   onClose: () => void;
 }
 
-export const DolphinDBVisualizer: React.FC<VisualizerProps> = ({ initialMode, onClose }) => {
-  // --- 状态管理 (恢复完整的参数控制) ---
-  const [mode, setMode] = useState<AppMode>(initialMode);
-  const [progress, setProgress] = useState<number>(0);
-  const [isPlaying, setIsPlaying] = useState<boolean>(false); // ✨ 默认暂停，等待用户点击
-  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
-
-  // 参数状态
-  const [threshold, setThreshold] = useState(DEFAULTS.threshold);
-  const [funcType, setFuncType] = useState<FuncType>(DEFAULTS.funcType);
-  const [funcWindow, setFuncWindow] = useState(DEFAULTS.funcWindow);
+export const DolphinDBVisualizer: React.FC<VisualizerProps> = ({ pluginId, initialParams, onClose }) => {
+  const plugin = getPlugin(pluginId);
   
-  // Pivot Specific
-  const [pivotFunc, setPivotFunc] = useState<'last'|'sum'|'count'>('last');
+  // 合并默认参数和传入的初始参数
+  const [params, setParams] = useState(plugin ? { ...plugin.defaultParams, ...initialParams } : {});
+  
+  const [progress, setProgress] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [maxSteps, setMaxSteps] = useState(10);
 
-  // TS Engine Specific
-  const [tsWindowSize, setTsWindowSize] = useState(DEFAULTS.tsWindowSize);
-  const [tsStep, setTsStep] = useState(DEFAULTS.tsStep);
-
-  // --- Logic Hooks ---
-  const condIterResults = useConditionalIterateLogic(threshold, funcType, funcWindow);
-  const tmSeriesResults = useTmSeriesLogic(funcWindow);
-  const pivotResults = usePivotLogic(pivotFunc);
-  const tsEngineResults = useTimeSeriesEngineLogic(tsWindowSize, tsStep);
-
-  // Determine Data Source
-  let currentResults: any[] = [];
-  let totalSteps = DATA_INPUTS.length;
-
-  if (mode === 'conditionalIterate') {
-      currentResults = condIterResults;
-      totalSteps = DATA_INPUTS.length;
-  } else if (mode === 'tmFunction') {
-      currentResults = tmSeriesResults;
-      totalSteps = TM_INPUTS.length;
-  } else if (mode === 'pivot') {
-      currentResults = pivotResults.steps;
-      totalSteps = PIVOT_DATA.length;
-  } else if (mode === 'createTimeSeriesEngine') {
-      currentResults = tsEngineResults;
-      totalSteps = TS_ENGINE_DATA.length;
-  }
-
-  // Reset when mode changes
+  // 当插件ID变化时重置
   useEffect(() => {
+    if (plugin) {
+      console.log("Loading Plugin:", pluginId, "Params:", initialParams);
+      setParams({ ...plugin.defaultParams, ...initialParams });
       setProgress(0);
       setIsPlaying(false);
-  }, [mode]);
+    }
+  }, [pluginId, initialParams]); // initialParams 变化也应重置
 
-  // --- Animation Loop ---
+  // 动画循环 (同 3d 项目逻辑)
   useEffect(() => {
-    let animationFrameId: number;
+    let handle: number;
     let lastTime = performance.now();
-
     const animate = (time: number) => {
-      // 防止 delta 计算异常（例如切换 Tab 后切回来，delta 可能会巨大）
       const delta = (time - lastTime) / 1000;
       lastTime = time;
-      
-      // 忽略异常的负值或过大的跳跃
-      if (delta < 0 || delta > 0.1) {
-          animationFrameId = requestAnimationFrame(animate);
-          return;
+      if (isPlaying) {
+        setProgress(p => {
+          const next = p + delta * 1.5;
+          if (next >= maxSteps) { setIsPlaying(false); return maxSteps; }
+          return next;
+        });
+        handle = requestAnimationFrame(animate);
       }
-
-      setProgress((prev) => {
-        // 这里的 prev 是最新的 progress，不需要通过依赖项获取
-        const newProgress = prev + (delta * 1.5); // 1.5 是播放速度
-        
-        if (newProgress >= totalSteps) {
-            setIsPlaying(false); // 播放结束
-            return totalSteps;
-        }
-        return newProgress;
-      });
-      
-      // 只要还在播放状态（注意：这里闭包里的 isPlaying 是启动时的值，但 react 会在 isPlaying 变 false 时清理这个 effect）
-      // 实际上，因为我们把 isPlaying 放在依赖里，当 setIsPlaying(false) 发生时，
-      // 这个 Effect 会被 cleanup，从而 cancelAnimationFrame，循环自然停止。
-      animationFrameId = requestAnimationFrame(animate);
     };
-
     if (isPlaying) {
-      // ✨ 关键修复：如果在终点点击播放，先重置为 0
-      setProgress((prev) => (prev >= totalSteps ? 0 : prev));
-      
-      lastTime = performance.now();
-      animationFrameId = requestAnimationFrame(animate);
+        lastTime = performance.now();
+        handle = requestAnimationFrame(animate);
     }
+    return () => cancelAnimationFrame(handle);
+  }, [isPlaying, maxSteps]);
 
-    return () => {
-      if (animationFrameId) cancelAnimationFrame(animationFrameId);
-    };
-    
-    // ✨✨✨ 关键修复：依赖数组中去掉 'progress' ✨✨✨
-    // 这样 Effect 就不会每一帧都重启，lastTime 就能正确记录上一帧的时间了
-  }, [isPlaying, totalSteps]);
+  if (!plugin) return <div className="text-white">Plugin not found: {pluginId}</div>;
+
   return (
     <div className="relative w-full h-full bg-[#050505] overflow-hidden font-mono">
-      {/* 3D 场景层 */}
+      {/* 3D Scene */}
       <div className="absolute inset-0 z-0">
-        <Canvas
-          shadows
-          dpr={[1, 2]}
-          camera={{ position: [5, 5, 14], fov: 45 }}
-          gl={{ antialias: false, toneMappingExposure: 1.5 }}
-        >
-          <Scene 
-            mode={mode}
+        <Canvas shadows dpr={[1, 2]} camera={{ position: [0, 0, 14], fov: 45 }} gl={{ antialias: false, toneMappingExposure: 1.5 }}>
+          <color attach="background" args={['#050505']} />
+          <ambientLight intensity={0.5} />
+          <pointLight position={[10, 10, 10]} intensity={1.5} />
+          <spotLight position={[0, 15, 0]} angle={0.6} penumbra={1} intensity={2} castShadow />
+          <Stars radius={100} depth={50} count={5000} factor={4} fade />
+          <ContactShadows resolution={1024} scale={20} blur={2} opacity={0.5} far={10} color="#000000" />
+          
+          {/* ✨ 动态渲染插件场景 ✨ */}
+          <plugin.SceneComponent 
+            isPlaying={isPlaying} 
             progress={progress} 
-            results={currentResults}
-            pivotLogic={pivotResults}
-            tsEngineLogic={tsEngineResults}
-            hoveredIndex={hoveredIndex}
-            setHoveredIndex={setHoveredIndex}
-            funcWindow={funcWindow}
-            funcType={funcType}
-            tsWindowSize={tsWindowSize}
+            params={params} 
+            onStepsReady={setMaxSteps} 
           />
+          
+          <OrbitControls makeDefault />
+          <EffectComposer enableNormalPass={false}>
+            <Bloom luminanceThreshold={1} intensity={1.5} radius={0.6} />
+            <Noise opacity={0.05} />
+            <Vignette eskil={false} offset={0.1} darkness={1.1} />
+          </EffectComposer>
         </Canvas>
       </div>
 
-      {/* UI 控制层 (Overlay) */}
-      <UIOverlay 
-        mode={mode}
-        setMode={setMode}
-        progress={progress} 
-        setProgress={setProgress}
-        totalSteps={totalSteps}
-        hoveredIndex={hoveredIndex}
-        results={currentResults}
-        isPlaying={isPlaying}
-        setIsPlaying={setIsPlaying}
-        params={{
-          threshold, setThreshold,
-          funcType, setFuncType,
-          funcWindow, setFuncWindow,
-          pivotFunc, setPivotFunc,
-          tsWindowSize, setTsWindowSize,
-          tsStep, setTsStep
-        }}
-      />
+      {/* UI Overlay: Title & Controls */}
+      <div className="absolute top-4 left-4 z-10 pointer-events-none">
+         <h1 className="text-4xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-yellow-400">
+            {plugin.name}
+         </h1>
+         <p className="text-gray-400 text-xs mt-1">{plugin.description}</p>
+      </div>
 
-      {/* 独立的关闭按钮 (位于最顶层，覆盖 UIOverlay) */}
-      <button 
-        onClick={onClose}
-        className="absolute top-6 right-6 z-[60] group flex items-center justify-center w-10 h-10 bg-red-500/20 hover:bg-red-500 text-red-500 hover:text-white border border-red-500/50 rounded-full transition-all duration-300 backdrop-blur-md"
-        title="Close Demo"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
+      {/* Parameter Panel (Top Right) */}
+      {plugin.ParameterPanelComponent && (
+        <div className="absolute top-4 right-16 z-10 pointer-events-auto">
+            <div className="bg-gray-900/90 backdrop-blur-md p-4 border border-gray-700 rounded-lg shadow-xl w-72 max-h-[80vh] overflow-y-auto">
+                <div className="text-xs font-bold text-gray-500 uppercase border-b border-gray-700 pb-1 mb-2">Parameters</div>
+                <plugin.ParameterPanelComponent params={params} setParams={setParams} />
+            </div>
+        </div>
+      )}
+
+      {/* Playback Controls (Bottom) */}
+      <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 z-10 pointer-events-auto w-full max-w-2xl px-4">
+         <div className="bg-gray-900/80 backdrop-blur border border-gray-700 rounded-full p-2 flex items-center gap-4">
+            <button onClick={() => setIsPlaying(!isPlaying)} className="w-10 h-10 rounded-full bg-cyan-600 flex items-center justify-center hover:bg-cyan-500 transition">
+                {isPlaying ? "⏸" : "▶"}
+            </button>
+            <input 
+                type="range" min="0" max={maxSteps} step="0.01" 
+                value={progress} 
+                onChange={(e) => { setIsPlaying(false); setProgress(parseFloat(e.target.value)); }}
+                className="flex-1 h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-cyan-400"
+            />
+            <span className="text-xs text-cyan-400 font-mono w-16 text-right">
+                {progress.toFixed(1)} / {maxSteps}
+            </span>
+         </div>
+      </div>
+
+      {/* Close Button */}
+      <button onClick={onClose} className="absolute top-4 right-4 z-20 text-red-500 hover:text-white bg-red-500/10 hover:bg-red-500 rounded-full p-2 transition">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
       </button>
     </div>
   );

@@ -8,13 +8,204 @@ import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom'; 
 import { AppMode } from '../visualizer/constants';
 
-const FUNCTION_TO_MODE_MAP: Record<string, AppMode> = {
-    'conditionalIterate': 'conditionalIterate',
-    'createReactiveStateEngine': 'conditionalIterate',
-    'tmsum': 'tmFunction',
-    'pivot': 'pivot',
-    'createTimeSeriesEngine': 'createTimeSeriesEngine',
-    'dailyAlignedBar': 'createTimeSeriesEngine', // 关联相关函数
+interface VisualizerConfig {
+    pluginId: string;
+    initialParams?: any;
+}
+
+// 2. 扩展映射表，支持系列函数
+const FUNCTION_TO_PLUGIN_MAP: Record<string, VisualizerConfig> = {
+  // ============================
+  // M Series Functions
+  // ============================
+  'msum':   { pluginId: 'm-functions', initialParams: { func: 'msum' } },
+  'mavg':   { pluginId: 'm-functions', initialParams: { func: 'mavg' } },
+  'mmax':   { pluginId: 'm-functions', initialParams: { func: 'mmax' } },
+  'mmin':   { pluginId: 'm-functions', initialParams: { func: 'mmin' } },
+  'mcount': { pluginId: 'm-functions', initialParams: { func: 'mcount' } },
+  'mprod':  { pluginId: 'm-functions', initialParams: { func: 'mprod' } },
+  'mstd':   { pluginId: 'm-functions', initialParams: { func: 'mstd' } },
+
+  // ============================
+  // TM Series Functions
+  // ============================
+  'tmsum':   { pluginId: 'tmFunctions', initialParams: { func: 'tmsum' } },
+  'tmavg':   { pluginId: 'tmFunctions', initialParams: { func: 'tmavg' } },
+  'tmmax':   { pluginId: 'tmFunctions', initialParams: { func: 'tmmax' } },
+  'tmmin':   { pluginId: 'tmFunctions', initialParams: { func: 'tmmin' } },
+  'tmcount': { pluginId: 'tmFunctions', initialParams: { func: 'tmcount' } },
+  'tmtopn':  { pluginId: 'tmFunctions', initialParams: { func: 'tmtopn' } }, // 额外补齐
+  'tmstd':   { pluginId: 'tmFunctions', initialParams: { func: 'tmstd' } },  // 如插件支持
+
+  // ============================
+  // Cumulative Series Functions
+  // ============================
+  'cumsum':  { pluginId: 'cum', initialParams: { func: 'cumsum' } },
+  'cumprod': { pluginId: 'cum', initialParams: { func: 'cumprod' } },
+  'cummax':  { pluginId: 'cum', initialParams: { func: 'cummax' } },
+  'cummin':  { pluginId: 'cum', initialParams: { func: 'cummin' } },
+
+  // ============================
+  // TopN / Bucket / Digitize / CutPoints / Segment (自动补全)
+  // ============================
+  'aggrTopN':        { pluginId: 'aggrTopN', initialParams: {} },
+  'cumTopN':     { pluginId: 'cumTopN', initialParams: {} },
+  'bucket':      { pluginId: 'bucket', initialParams: {} },
+  'digitize':    { pluginId: 'digitize', initialParams: {} },
+  'cutPoints':   { pluginId: 'cutPoints', initialParams: {} },
+  'segment':     { pluginId: 'segment', initialParams: {} },
+  'segmentby':   { pluginId: 'segmentby', initialParams: {} },
+
+  // ============================
+  // Standard Plugins
+  // ============================
+  'pivot':       { pluginId: 'pivot', initialParams: { pivotFunc: 'last' } },
+  'asof':        { pluginId: 'asof', initialParams: {} },
+  'rolling':     { pluginId: 'rolling', initialParams: {} },
+  'window':      { pluginId: 'window', initialParams: {} },
+  'twindow':     { pluginId: 'twindow', initialParams: {} },
+
+  // ============================
+  // Joins / Merge / Grouping
+  // ============================
+  'join':        { pluginId: 'join', initialParams: {} },
+  'joinInPlace': { pluginId: 'joinInPlace', initialParams: {} },
+  'merge':       { pluginId: 'merge', initialParams: {} },
+  'groupby':     { pluginId: 'groupby', initialParams: {} },
+  'rowGroupby':  { pluginId: 'rowGroupby', initialParams: {} },
+  'contextby':   { pluginId: 'contextby', initialParams: {} },
+
+  // ============================
+  // Matrix/Concat
+  // ============================
+  'concatMatrix': { pluginId: 'concatMatrix', initialParams: {} },
+
+  // ============================
+  // Row-based functions
+  // ============================
+  'rowFunc':     { pluginId: 'rowFunctions', initialParams: {} },
+
+  // ============================
+  // Engines
+  // ============================
+  'createTimeSeriesEngine':      { pluginId: 'createTimeSeriesEngine', initialParams: {} },
+  'createReactiveStateEngine':   { pluginId: 'createReactiveStateEngine', initialParams: {} },
+  'createCrossSectionalEngine':  { pluginId: 'createCrossSectionalEngine', initialParams: {} },
+
+  // ============================
+  // Conditional Iterate
+  // ============================
+  'conditionalIterate': { pluginId: 'conditionalIterate', initialParams: {} },
+
+  'volumeBar': {pluginId: 'volumeBar', initialParams: {}},
+  'bar': {pluginId: 'bar', initialParams: {}},
+  'regroup': {pluginId: 'regroup', initialParams: {}},
+  "accumulate": {
+   pluginId: "accumulate",
+    initialParams: {
+      func: "sum"
+    }
+  },
+
+  "dailyAlignedBar": {
+   pluginId: "dailyAlignedBar",
+    initialParams: {
+      "sessions": "09:30-11:30, 13:00-15:00",
+      "intervalMinutes": 60,
+      "mergeSessionEnd": false
+    }
+  },
+  "eachLeft": {
+   pluginId: "eachLeft",
+    initialParams: {}
+  },
+  "eachPost": {
+   pluginId: "eachPost",
+    initialParams: {
+      func: "sub",
+      "boundaryVal": 0
+    }
+  },
+  "eachPre": {
+   pluginId: "eachPre",
+    initialParams: {
+      func: "sub",
+      "boundaryVal": 0
+    }
+  },
+  "eachRight": {
+   pluginId: "eachRight",
+    initialParams: {}
+  },
+  "flatten": {
+   pluginId: "flatten",
+    initialParams: {
+      "X": "(1, (2, (3, 4, 5)), (6, 7), 8, [9])"
+    }
+  },
+  "groups": {
+   pluginId: "groups",
+    initialParams: {
+      "X": "NULL, NULL, 12, 15, 12, 16, 15, 14, NULL, NULL",
+      "mode": "dict"
+    }
+  },
+  "join!": {
+   pluginId: "join!",
+    initialParams: {
+      "X": "[1,2,3]",
+      "Y": "[4,5,6]"
+    }
+  },
+  "reshape": {
+   pluginId: "reshape",
+    initialParams: {
+      "X": "[1,2,3,4,5,6]",
+      "Dim": "[2,3]"
+    }
+  },
+  "shuffle!": {
+   pluginId: "shuffle_inplace",
+    initialParams: {
+      "X": "1..10"
+    }
+  },
+  "shuffle": {
+   pluginId: "shuffle",
+    initialParams: {
+      "X": "1..10"
+    }
+  },
+  "tmoving": {
+   pluginId: "tmoving",
+    initialParams: {
+      func: "avg",
+      "window": 3
+    }
+  },
+  "ungroup": {
+   pluginId: "ungroup",
+    initialParams: {
+      "IDs": "[1, 2]",
+      "Values": "([10, 20], [30, 40, 50])"
+    }
+  },
+  "unionAll": {
+   pluginId: "unionAll",
+    initialParams: {
+      "tableA": "table(1..3 as id, 4..6 as x)",
+      "tableB": "table(7..9 as id, 10..12 as x)",
+      "byColName": false
+    }
+  },
+  "union": {
+   pluginId: "union",
+    initialParams: {
+      "X": "[5, 5, 3, 4]",
+      "Y": "[8, 9, 9, 4, 6]"
+    }
+  }
+  
 };
 
 type ContentPart =
@@ -33,7 +224,7 @@ interface ContentRendererProps {
   onCitationClick: (highlight: ActiveHighlight, element: HTMLElement) => void;
   isFocusModeActive: boolean;
   focusedHighlight: ActiveHighlight | null;
-  onShowVisualizer?: (mode: AppMode) => void; 
+  onShowVisualizer?: (pluginId: string, initialParams?: any) => void;
   isStreaming?: boolean; 
 }
 
@@ -130,15 +321,18 @@ const CitationSpan: React.FC<{
 const CodeBlock: React.FC<{ 
     language: string; 
     content: string; 
-    onShowVisualizer?: (mode: AppMode) => void;
+    onShowVisualizer?:  (pluginId: string, initialParams?: any) => void; 
     isStreaming?: boolean;
 }> = ({ language, content, onShowVisualizer, isStreaming }) => {
     const [copied, setCopied] = useState(false);
 
     const detectedMode = React.useMemo(() => {
-        for (const [func, mode] of Object.entries(FUNCTION_TO_MODE_MAP)) {
-            if (content.includes(func)) {
-                return mode;
+        // 简单匹配：代码中包含函数名即触发
+        for (const [func, config] of Object.entries(FUNCTION_TO_PLUGIN_MAP)) {
+            // 使用正则确保匹配完整单词，避免 'sum' 匹配到 'cumsum'
+            const regex = new RegExp(`\\b${func}\\b`);
+            if (regex.test(content)) {
+                return config;
             }
         }
         return null;
@@ -185,7 +379,7 @@ const CodeBlock: React.FC<{
                     {/* ✨ 3D 特效按钮 ✨ */}
                     {detectedMode && onShowVisualizer && (
                         <button
-                            onClick={() => onShowVisualizer(detectedMode)}
+                            onClick={() => onShowVisualizer(detectedMode.pluginId, detectedMode.initialParams)}
                             disabled={isStreaming} // ✨ 禁用按钮
                             className={`flex items-center gap-1.5 px-2 py-0.5 text-xs font-bold text-white rounded-full transition-all shadow-sm 
                                 ${isStreaming 
@@ -373,7 +567,7 @@ interface QAPairRendererProps {
     activeFocus: { qaId: string; highlight: ActiveHighlight } | null;
     history: QAPair[]; 
     index: number;
-    onShowVisualizer?: (mode: AppMode) => void;
+    onShowVisualizer?: (pluginId: string, initialParams?: any) => void; 
 }
 
 const QAPairRenderer: React.FC<QAPairRendererProps> = ({ qa, isLast, streamingData, onCitationClick, activeFocus, history, index, onShowVisualizer }) => {
@@ -661,7 +855,7 @@ interface ChatInterfaceProps {
   };
   onCitationClick: (highlight: ActiveHighlight, qaId: string) => void;
   activeFocus: { qaId: string; highlight: ActiveHighlight } | null;
-  onShowVisualizer?: (mode: AppMode) => void;
+  onShowVisualizer?: (pluginId: string, initialParams?: any) => void; 
 }
 
 export const ChatInterface: React.FC<ChatInterfaceProps> = ({ history, streamingData, onCitationClick, activeFocus, onShowVisualizer }) => {
