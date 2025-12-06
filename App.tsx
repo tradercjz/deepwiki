@@ -18,7 +18,7 @@ import { AuthModal } from './components/AuthModal';
 import { COLORS } from './constants';
 import { FloatingKeywordsOverlay } from './components/FloatingKeywordsOverlay';
 import LogoImage from './assets/Image.svg'; 
-
+import { CosmicParticleSystem } from './components/CosmicParticleSystem';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
 
@@ -734,8 +734,9 @@ function App() {
 
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
-      <VantaBackground />
-      <FloatingKeywordsOverlay />
+      {/* <VantaBackground />
+      <FloatingKeywordsOverlay /> */}
+      <CosmicParticleSystem />
       <AuthModal 
         isOpen={isAuthModalOpen} 
         onClose={() => setAuthModalOpen(false)} 
@@ -897,7 +898,7 @@ function App() {
       <div className={`flex-grow pt-16 flex flex-col transition-all duration-300 ${isPinned ? 'pl-64' : 'pl-0'}`}>
       {!conversationId ? (
         // --- 主页布局 ---
-        <main className="flex-grow pt-16 flex flex-col justify-center items-center p-4">
+        <main className="flex-grow flex flex-col justify-end items-center p-4 pb-[20vh] md:pb-[25vh]">
           <div className="flex flex-col items-center gap-6 w-full">
             {/* ✨✨✨ 明确传递 Props ✨✨✨ */}
             <ChatInputFooter
