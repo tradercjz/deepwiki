@@ -8,7 +8,7 @@ const KEYWORDS = [
 ];
 
 const CONFIG = {
-  particleCount: 7000,   // 稍微增加粒子数，因为散射后需要更多点来维持辨识度
+  particleCount: 6000,   // 稍微增加粒子数，因为散射后需要更多点来维持辨识度
   textParticleRatio: 0.65,
   particleSize: 5.0,     // 保持较大尺寸
   color: 0x00f0ff,
