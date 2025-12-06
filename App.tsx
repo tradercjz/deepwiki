@@ -16,7 +16,7 @@ import { AppMode } from './visualizer/constants';
 import { useAuth } from './context/AuthContext';
 import { AuthModal } from './components/AuthModal';
 import { COLORS } from './constants';
-
+import { FloatingKeywordsOverlay } from './components/FloatingKeywordsOverlay';
 import LogoImage from './assets/Image.svg'; 
 
 
@@ -735,6 +735,7 @@ function App() {
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
       <VantaBackground />
+      <FloatingKeywordsOverlay />
       <AuthModal 
         isOpen={isAuthModalOpen} 
         onClose={() => setAuthModalOpen(false)} 
