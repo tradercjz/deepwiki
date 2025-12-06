@@ -898,7 +898,7 @@ function App() {
       <div className={`flex-grow pt-16 flex flex-col transition-all duration-300 ${isPinned ? 'pl-64' : 'pl-0'}`}>
       {!conversationId ? (
         // --- 主页布局 ---
-        <main className="flex-grow flex flex-col justify-end items-center p-4 pb-[20vh] md:pb-[25vh]">
+        <main className="flex-grow flex flex-col justify-end items-center p-4 pb-[20vh] md:pb-[25vh] relative">
           <div className="flex flex-col items-center gap-6 w-full">
             {/* ✨✨✨ 明确传递 Props ✨✨✨ */}
             <ChatInputFooter
@@ -921,6 +921,19 @@ function App() {
                 />
                 <span>Debug Mode</span>
               </label> */}
+              <div className="absolute bottom-2 left-0 right-0 text-center pb-2">
+                <a 
+                  href="https://beian.miit.gov.cn/" 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  // text-[10px]: 极小字体
+                  // text-white/20: 20% 透明度的白色 (非常淡，像水印)
+                  // hover:text-white/50: 鼠标放上去稍微变亮
+                  className="text-[10px] text-white/20 hover:text-white/50 transition-colors no-underline font-mono"
+                >
+                  浙ICP备2025198420号-2
+                </a>
+              </div>
           </div>
         </main>
       ) : (
