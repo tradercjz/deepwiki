@@ -38,6 +38,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     throw new Error(errorMessage);
   }
 
+  // 如果状态码是 204，直接返回空对象，不要尝试解析 JSON
+  if (response.status === 204) {
+    return {} as T;
+  }
+
   return response.json();
 }
 
@@ -91,4 +96,9 @@ export const historyApi = {
   
   // 获取单条详情
   get: (id: string) => request<any>(`/rag/conversations/${id}`),
+
+  delete: (id: string) => 
+    request<void>(`/history/conversations/${id}`, {
+      method: 'DELETE'
+    }),
 };

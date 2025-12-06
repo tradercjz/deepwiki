@@ -4,6 +4,7 @@ import { historyManager } from "../utils/historyManager";
 import { useAuth } from '../context/AuthContext';
 import { historyApi } from '../api/client';
 import { COLORS } from '../constants';
+import { ConfirmModal } from "./ConfirmModal";
 
 // 图标组件
 const PinIcon = ({ filled }: { filled: boolean }) => (
@@ -31,17 +32,33 @@ interface HistorySidebarProps {
   onTogglePin: () => void;
   onClose: () => void;
   onNewChat?: () => void; // Optional
+  generatingId: string | null; 
 }
+
+// 一个简单的 Loading 动画组件 (三点跳动)
+const GeneratingIndicator = () => (
+  <div className="flex space-x-1 items-center ml-2">
+    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"></div>
+  </div>
+);
 
 export const HistorySidebar: React.FC<HistorySidebarProps> = ({
   isOpen,
   isPinned, 
   onTogglePin, 
-  onClose
+  onClose,
+  generatingId
 }) => {
   const { user } = useAuth(); // 获取登录用户
   const [items, setItems] = useState<UnifiedHistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+
+  // 删除弹窗相关的 State
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false); // 控制按钮 loading
   
   const navigate = useNavigate();
   const { conversationId } = useParams();
@@ -59,6 +76,12 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
           title: item.title,
           timestamp: item.updated_at // 云端是 ISO String
         }));
+
+        // 强制按时间倒序排序
+        mapped.sort((a, b) => {
+          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+        });
+
         setItems(mapped);
       } catch (e) {
         console.error("Failed to load cloud history", e);
@@ -68,8 +91,51 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
     } else {
       // --- 未登录：加载本地数据 ---
       const localData = historyManager.getHistory();
+      localData.sort((a, b) => b.timestamp - a.timestamp);
       setItems(localData);
       setIsLoading(false);
+    }
+  };
+
+  const handleDelete = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation(); // 阻止冒泡，防止触发点击进入对话
+
+    // 1. 确认删除
+    if (!confirm('Are you sure you want to delete this conversation?')) {
+      return;
+    }
+
+    // 记录要删除的 ID 是否是当前正在查看的 ID
+    const isCurrentChat = conversationId === id;
+
+    if (user) {
+      // --- 情况 A: 已登录 (调用 API) ---
+      try {
+        // 乐观更新：先从 UI 移除，让用户感觉很快
+        const originalItems = [...items];
+        setItems(prev => prev.filter(item => item.id !== id));
+
+        // 调用接口
+        await historyApi.delete(id);
+        
+        // 如果 API 失败了，是不是要回滚？通常对于删除操作，
+        // 除非网络极差，否则不需要太复杂的 rollback，报错提示即可。
+      } catch (err) {
+        console.error("Failed to delete cloud conversation", err);
+        alert("Failed to delete conversation from cloud.");
+        loadHistory(); // 失败后重新拉取列表以恢复
+        return; 
+      }
+    } else {
+      // --- 情况 B: 游客 (操作 LocalStorage) ---
+      historyManager.deleteConversation(id);
+      // 更新 UI
+      setItems(prev => prev.filter(item => item.id !== id));
+    }
+
+    // 3. 后置处理：如果删除了当前正在看的对话，跳回主页
+    if (isCurrentChat) {
+      navigate('/');
     }
   };
 
@@ -95,22 +161,6 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
     }
   };
 
-  const handleDelete = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    
-    // 目前仅支持删除本地历史，云端删除接口如果还没写，暂时屏蔽或提示
-    if (!user) {
-      if (confirm('Delete this chat from local history?')) {
-        historyManager.deleteConversation(id);
-        // 如果删除的是当前对话，跳回主页
-        if (conversationId === id) navigate('/');
-      }
-    } else {
-      // TODO: 对接云端删除接口
-      alert("Deleting cloud history is coming soon.");
-    }
-  };
-
   const handleClearAll = () => {
     if (user) {
       alert("Clearing cloud history is coming soon.");
@@ -120,6 +170,51 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
       }
     }
   };
+
+  const handleRequestDelete = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setDeleteTargetId(id);
+    setIsDeleteModalOpen(true);
+  };
+
+  // ✨ [新增] 真正的执行删除逻辑 (从原来的 handleDelete 改造而来)
+  const confirmDelete = async () => {
+    if (!deleteTargetId) return;
+    
+    setIsDeleting(true);
+    const id = deleteTargetId;
+    const isCurrentChat = conversationId === id;
+
+    try {
+      if (user) {
+        // --- 登录模式 ---
+        // 乐观更新：先从 UI 移除
+        setItems(prev => prev.filter(item => item.id !== id));
+        // 调用 API
+        await historyApi.delete(id);
+      } else {
+        // --- 游客模式 ---
+        historyManager.deleteConversation(id);
+        setItems(prev => prev.filter(item => item.id !== id));
+      }
+
+      // 如果删除了当前对话，跳回主页
+      if (isCurrentChat) {
+        navigate('/');
+      }
+
+      // 关闭弹窗
+      setIsDeleteModalOpen(false);
+      setDeleteTargetId(null);
+    } catch (err) {
+      console.error("Delete failed", err);
+      alert("Delete failed, please try again."); // 只有真正出错才弹系统窗
+      loadHistory(); // 回滚数据
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
 
   return (
     <>
@@ -210,21 +305,27 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
                 }`}>
                   {item.title}
                 </div>
+                {generatingId === item.id && (
+                        <GeneratingIndicator />
+                    )}
 
-                {/* 时间 (可选) */}
+                {/* 时间 (可选)
                 <div className="text-[10px] text-gray-400 mt-0.5">
                   {new Date(item.timestamp).toLocaleDateString()} 
                   {' ' + new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                </div>
+                </div> */}
 
                 {/* Delete Button (仅当鼠标 Hover 且未加载时显示) */}
                 {!isLoading && (
-                   <button
-                   onClick={(e) => handleDelete(e, item.id)}
-                   className="absolute right-2 top-3 p-1 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                   title={user ? "Delete (Not available for cloud yet)" : "Delete"}
-                   disabled={!!user} // 暂时禁用云端删除
-                 >
+                    <button
+                    onClick={(e) => {
+                      e.stopPropagation(); // 阻止冒泡：防止触发 handleSelect
+                      handleRequestDelete(e, item.id);
+                    }}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full opacity-0 group-hover:opacity-100 transition-all z-10"
+                    title="Delete conversation"
+                    // ⚠️ 关键：之前这里可能有 disabled={!!user}，一定要删掉！
+                  >
                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                      <polyline points="3 6 5 6 21 6"></polyline>
                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
@@ -251,6 +352,17 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
           </button>
         </div>
       </div>
+      <ConfirmModal
+        isOpen={isDeleteModalOpen}
+        title="Delete Conversation"
+        message="Are you sure you want to delete this conversation? This action cannot be undone."
+        onClose={() => {
+            setIsDeleteModalOpen(false);
+            setDeleteTargetId(null);
+        }}
+        onConfirm={confirmDelete}
+        isLoading={isDeleting}
+      />
     </>
   );
 };

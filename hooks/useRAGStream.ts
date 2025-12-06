@@ -12,6 +12,9 @@ export const useRAGStream = () => {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
+  const [streamingId, setStreamingId] = useState<string | null>(null);
+
+
   const startStream = useCallback(async (
     question: string,
     conversationId: string, // ID 现在是必须的
@@ -19,6 +22,7 @@ export const useRAGStream = () => {
     imageFiles: File[]
   ) => {
     setIsLoading(true);
+    setStreamingId(conversationId);
     setError(null);
     setCurrentAnswer('');
     setSources({});
@@ -59,12 +63,16 @@ export const useRAGStream = () => {
       const headers: HeadersInit = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
+        console.log('[RAGStream] Sending with User Token'); // 方便调试
+      } else {
+        console.log('[RAGStream] Sending as Guest');
       }
       
       // ‼️ 注意：当使用 FormData 时，永远不要手动设置 Content-Type header。
       // 浏览器会自动设置，并包含正确的 boundary 分隔符。
       const response = await fetch(`${API_BASE_URL}/api/v1/rag/chat`, {
         method: 'POST',
+        headers: headers,
         body: formData, // 始终传递 formData 对象
       });
 
@@ -147,11 +155,12 @@ export const useRAGStream = () => {
       setError(err.message || 'An unknown error occurred.');
     } finally {
       setIsLoading(false);
+      setStreamingId(null); 
       setStatusMessage('');
       onComplete(finalAnswer, finalSources, conversationId);
     }
   }, []);
 
   // 导出 setError 和 setIsLoading 以便 App 组件可以手动控制
-  return { currentAnswer, sources, statusMessage, error, isLoading, startStream, setError, setIsLoading };
+  return { currentAnswer, sources, statusMessage, error, isLoading, streamingId, startStream, setError, setIsLoading };
 };

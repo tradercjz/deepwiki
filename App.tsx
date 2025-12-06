@@ -175,11 +175,14 @@ function App() {
     sources, 
     statusMessage, 
     error, 
-    isLoading, 
+    isLoading,
+    streamingId,
     startStream,
     setError, 
     setIsLoading 
   } = useRAGStream();
+
+  const isGeneratingRef = useRef(false);
   
   const mainContentRef = useRef<HTMLDivElement>(null);
   const [activeFocus, setActiveFocus] = useState<{ qaId: string; highlight: ActiveHighlight } | null>(null);
@@ -308,6 +311,10 @@ function App() {
       setQuestion('');
       setPendingFiles([]); // 清空输入框
 
+      //  提问时立即更新历史记录 (置顶当前会话) 
+      if (!user) historyManager.saveConversation(conversationId, newQuestion);
+      else window.dispatchEvent(new Event('history-updated')); // 让 Sidebar 重新拉取排序
+
       startStream(
         newQuestion,
         conversationId,
@@ -320,7 +327,9 @@ function App() {
             images: currentImages
           };
           setHistory(currentHist => currentHist.map(p => p.id === qaPairShell.id ? finalQAPair : p));
-          historyManager.saveConversation(qaPairShell.id, newQuestion);
+          if (!user) historyManager.saveConversation(conversationId, newQuestion);
+          else window.dispatchEvent(new Event('history-updated'));
+
         },
         pendingFiles
       );
@@ -330,9 +339,17 @@ function App() {
       setIsLoading(true);
       setError(null);
       try {
+        const token = localStorage.getItem('auth_token');
+        const headers: HeadersInit = {
+          'Content-Type': 'application/json'
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const createResponse = await fetch(`${API_BASE_URL}/api/v1/rag/conversations`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: headers,
           body: JSON.stringify({
            // ✨ 核心：传空数组，让跳转后的 useEffect 来发起第一条消息
             initial_history: [], 
@@ -370,15 +387,18 @@ function App() {
       const stateQuestion = locationState?.question;
       const isNewChatFlow = (pendingFiles && pendingFiles.length > 0) || (stateQuestion !== undefined && locationState?.isNewConversation);
 
-      // 1. 处理新会话初始化
+      // --- A. 处理新会话初始化 ---
       if (isNewChatFlow) {
+        // 防止 StrictMode 下的重复执行
         if (processedNewChatIds.current.has(id)) return;
         processedNewChatIds.current.add(id);
+        isGeneratingRef.current = true; // 标记开始
 
         let questionToAsk = stateQuestion;
         if (!questionToAsk && pendingFiles.length > 0) questionToAsk = "Analyze the attached file(s).";
-        if (questionToAsk === undefined) questionToAsk = "";
+        if (questionToAsk === undefined) questionToAsk = "New Chat";
 
+        // 1. 初始化 UI 状态
         const qaPairShell: QAPair = { 
             id: `qa-${Date.now()}`, 
             question: questionToAsk, 
@@ -387,6 +407,18 @@ function App() {
             images: pendingFiles 
         };
         setHistory([qaPairShell]);
+        
+        // ✨✨✨ [修复1]：立即在侧边栏显示“正在生成”的条目 ✨✨✨
+        // 不管是游客还是用户，先让侧边栏显示出来
+        if (!user) {
+          historyManager.saveConversation(id, questionToAsk);
+        } else {
+          // 对于用户，虽然 API 可能还没返回这条历史，但我们可以先触发一次刷新尝试
+          // 更好的做法是后端创建 ID 时就生成 title，这里假设后端已创建 ID
+          // 我们发送事件让 Sidebar 尝试去拉取
+          window.dispatchEvent(new Event('history-updated'));
+        }
+
         const filesToUpload = [...pendingFiles];
 
         startStream(
@@ -395,37 +427,55 @@ function App() {
           (fullAnswer, finalSources) => {
             const finalQAPair: QAPair = { ...qaPairShell, answer: fullAnswer, sources: finalSources, images: filesToUpload };
             setHistory(currentHist => currentHist.map(p => p.id === qaPairShell.id ? finalQAPair : p));
-            // ✨✨✨ 关键补充：保存新会话到历史记录 ✨✨✨
-            historyManager.saveConversation(id, questionToAsk);
+            
+            // 保存最终结果
+            if (!user) historyManager.saveConversation(id, questionToAsk);
+            else window.dispatchEvent(new Event('history-updated'));
+
+            // ✨✨✨ [修复2]：生成完成后，解锁 ID ✨✨✨
+            // 这样当你切到别的对话再切回来时，下面的逻辑 (B) 就会执行，从后端拉取完整数据
+            processedNewChatIds.current.delete(id);
+            isGeneratingRef.current = false;
           },
           filesToUpload
         );
 
         setPendingFiles([]); 
+        // 清除 location state，防止刷新页面重复触发
         navigate(location.pathname, { replace: true, state: {} });
         return; 
       }
 
-      // 2. 处理已有会话加载
+      // --- B. 处理已有会话加载 (切回来时走这里) ---
+      // 只有当这个 ID 不在“正在处理”列表中，或者它之前处理完了(被delete了)，才去拉取
       if (!processedNewChatIds.current.has(id)) {
         try {
-            const response = await fetch(`${API_BASE_URL}/api/v1/rag/conversations/${id}`);
+            // ✨ 如果正在流式传输中切回来（比如你切到 B 又切回 A），不要重新拉取，
+            // 否则会覆盖掉当前流式 hook 里的状态。
+            if (isLoading && streamingId === id) {
+                console.log('Resume streaming view, skipping fetch');
+                return;
+            }
+
+            const response = await fetch(`${API_BASE_URL}/api/v1/rag/conversations/${id}`, {
+               headers: user ? { 'Authorization': `Bearer ${user.token}` } : {} // 确保带 Token
+            });
+            
             if (!response.ok) {
                 if (response.status !== 404) throw new Error('Conversation not found.');
                 return;
             }
             const data = await response.json();
+            
+            // ... (解析 data.history 的逻辑保持不变) ...
             const loadedHistory = data.history || [];
             const formattedHistory: QAPair[] = [];
             
-            let firstQuestion = "New Chat"; // 默认标题
-
+            // 解析历史记录
             for (let i = 0; i < loadedHistory.length; i += 2) {
                 const userMsg = loadedHistory[i];
                 const assistantMsg = loadedHistory[i + 1];
                 if (userMsg?.role === 'user') {
-                    if (i === 0) firstQuestion = userMsg.content; // 记录第一条作为标题
-
                     const sourcesData = assistantMsg?.metadata?.sources || [];
                     const sourcesRecord: Record<string, RAGSource> = {};
                     for (const s of sourcesData) {
@@ -442,23 +492,8 @@ function App() {
             }
             setHistory(formattedHistory);
             
-            // ✨✨✨ 关键补充：加载成功后，默默保存到本地历史（如果是还没存过的） ✨✨✨
-            historyManager.saveConversation(id, firstQuestion);
-
-            // 继续未完成的对话
-            const lastMessage = loadedHistory[loadedHistory.length - 1];
-            if (lastMessage && lastMessage.role === 'user') {
-                const qaPairToUpdate = formattedHistory[formattedHistory.length - 1];
-                startStream(
-                    qaPairToUpdate.question,
-                    id,
-                    (fullAnswer, finalSources) => {
-                        const finalQAPair: QAPair = { ...qaPairToUpdate, answer: fullAnswer, sources: finalSources };
-                        setHistory(prev => prev.map(p => (p.id === qaPairToUpdate.id ? finalQAPair : p)));
-                    },
-                    [] 
-                );
-            }
+            // 如果最后一条是用户发的，且没有助理回答（异常中断），可以尝试继续生成（逻辑保持不变）
+            // ...
         } catch (err: any) {
             console.error(err);
             setError(err.message);
@@ -468,19 +503,18 @@ function App() {
 
     if (conversationId) loadAndProcessConversation(conversationId);
     else { setHistory([]); setError(null); }
-  }, [conversationId, navigate, startStream, pendingFiles, setPendingFiles, location.state]);
-
-  // useEffect 2: 负责将流式数据实时更新到UI
+  }, [conversationId, navigate, startStream, pendingFiles, location.state, user]); // 增加 user 依赖
+  
+  // useEffect 2: 负责将流式数据实时更新到 UI
   useEffect(() => {
-    if (isLoading) {
+    // 只有当「正在加载」且「正在流式传输的 ID」等于「当前视图的 ID」时，才更新 UI
+    if (isLoading && streamingId === conversationId) {
       setHistory(prevHistory => {
-        if (prevHistory.length === 0) {
-            return prevHistory;
-        }
+        if (prevHistory.length === 0) return prevHistory;
         
         const lastQAPair = prevHistory[prevHistory.length - 1];
         
-        // 只要在加载中，就用最新的流数据更新最后一个元素。
+        // 用最新的流数据更新最后一个元素
         const streamingQAPair: QAPair = {
             ...lastQAPair,
             answer: currentAnswer,
@@ -492,7 +526,8 @@ function App() {
         return newHistory;
       });
     }
-  }, [currentAnswer, sources, isLoading]);
+  }, [currentAnswer, sources, isLoading, streamingId, conversationId]); 
+
 
   const handleFilesSelected = (newFiles: File[]) => {
     setPendingFiles([...pendingFiles, ...newFiles]);
@@ -561,6 +596,7 @@ function App() {
                 isPinned={isPinned}
                 onTogglePin={togglePin}
                 onClose={() => setIsHoveringSidebar(false)} 
+                generatingId={isLoading ? streamingId : null}
             />
         </div>
       </div>

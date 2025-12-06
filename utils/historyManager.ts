@@ -11,7 +11,9 @@ export const historyManager = {
   getHistory: (): HistoryItem[] => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
+      const history = stored ? JSON.parse(stored) : [];
+      // 读取时也排个序，双重保险
+      return history.sort((a: HistoryItem, b: HistoryItem) => b.timestamp - a.timestamp);
     } catch (e) {
       console.error("Failed to parse history", e);
       return [];
@@ -37,10 +39,7 @@ export const historyManager = {
       };
 
       // 过滤掉旧的同ID记录（为了把新的顶到最前面），并限制总数为 50 条
-      const newHistory = [newItem, ...history.filter((h) => h.id !== id)].slice(
-        0,
-        50
-      );
+      const newHistory = [newItem, ...history.filter((h) => h.id !== id)];
 
       localStorage.setItem(STORAGE_KEY, JSON.stringify(newHistory));
 
