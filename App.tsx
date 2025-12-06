@@ -17,6 +17,8 @@ import { useAuth } from './context/AuthContext';
 import { AuthModal } from './components/AuthModal';
 import { COLORS } from './constants';
 
+import LogoImage from './assets/Image.svg'; 
+
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
 
@@ -758,13 +760,16 @@ function App() {
               {/* 当侧边栏固定时，此按钮可以隐藏，或者保留作为视觉平衡。这里我们保留，鼠标移上去也会触发悬浮 */}
               <div 
                 onMouseEnter={handleSidebarEnter}
-                className={`p-2 -ml-2 rounded-md cursor-pointer transition-opacity duration-300 ${isSidebarVisible ? 'opacity-0 pointer-events-none' : 'opacity-100 hover:bg-gray-100 dark:hover:bg-slate-800'}`}
+                className={`relative z-10 p-2 -ml-2 rounded-md cursor-pointer transition-opacity duration-300 ${isSidebarVisible ? 'opacity-0 pointer-events-none' : 'opacity-100 hover:bg-gray-100 dark:hover:bg-slate-800'}`}
               >
                  {/* 汉堡图标 */}
                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-600 dark:text-gray-300"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
               </div>
-              <DolphinIcon size={28} className="text-blue-500" mirrored={true} />
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">DolphinMind</h1>
+               <img 
+                src={LogoImage} 
+                alt="DolphinMind Logo" 
+                className="h-16 w-auto  object-contain -ml-10 translate-y-1" //svg设计不好，就靠手工调整
+              />
             </div>
 
             <div className="flex items-center gap-4">
