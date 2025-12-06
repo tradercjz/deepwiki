@@ -1,7 +1,6 @@
 // src/api/client.ts
 import { LoginResponse, ConversationSummary, ClaimResponse } from '../types/auth';
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
+import { API_BASE_URL } from '../config';
 
 // 通用请求封装
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {

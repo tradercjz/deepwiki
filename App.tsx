@@ -20,7 +20,7 @@ import { FloatingKeywordsOverlay } from './components/FloatingKeywordsOverlay';
 import LogoImage from './assets/Image.svg'; 
 import { CosmicParticleSystem } from './components/CosmicParticleSystem';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
+import { API_BASE_URL } from './config';
 
 const UserIcon = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

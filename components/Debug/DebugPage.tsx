@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { ResultCard } from './ResultCard';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007'; // 确保端口正确
+import { API_BASE_URL } from '../../config';
 
 // 定义后端返回的数据结构
 interface RetrievalResult {

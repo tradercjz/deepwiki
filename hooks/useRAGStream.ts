@@ -2,8 +2,7 @@
 import { useState, useCallback } from 'react';
 import { QAPair, RAGSource } from '../types';
 import { uploadFileToOSS } from '../utils/ossUpload'; 
-
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
+import { API_BASE_URL } from '../config';
 
 export const useRAGStream = () => {
   const [currentAnswer, setCurrentAnswer] = useState('');
