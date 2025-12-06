@@ -796,19 +796,53 @@ function App() {
               <button
                 onClick={handleNewChat}
                 disabled={isLoading}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                // ✨ [修改] 增加 flex, items-center, gap-2 让图标和文字对齐
+                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700`}
+                style={{ '--tw-ring-color': COLORS.themeBlue } as React.CSSProperties}
               >
-                New Chat
+                {/* ✨ New Chat 图标 (编辑笔) */}
+                <svg 
+                  width="16" 
+                  height="16" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                >
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                </svg>
+                <span>New Chat</span>
               </button>
 
               <button 
                 onClick={handleShare}
-                className={`px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700 transition-all duration-200 whitespace-nowrap ${
-                  shareText !== 'Share' ? 'w-28' : 'w-20'
-                }`}
+                className={`flex items-center gap-2 justify-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 transition-all duration-200 whitespace-nowrap ${
+                  shareText !== 'Share' ? 'w-32' : 'w-24' // 稍微调宽一点宽度以容纳图标
+                } dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700`}
+                style={{ '--tw-ring-color': COLORS.themeBlue } as React.CSSProperties}
                 disabled={shareText !== 'Share'}
               >
-                {shareText}
+                {/* ✨ Share 图标 (向上导出) */}
+                {/* 如果你想用链接图标，我可以换成 link 的 svg */}
+                <svg 
+                  width="16" 
+                  height="16" 
+                  viewBox="0 0 24 24" 
+                  fill="none" 
+                  stroke="currentColor" 
+                  strokeWidth="2" 
+                  strokeLinecap="round" 
+                  strokeLinejoin="round"
+                >
+                  <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
+                  <polyline points="16 6 12 2 8 6"></polyline>
+                  <line x1="12" y1="2" x2="12" y2="15"></line>
+                </svg>
+                
+                <span>{shareText}</span>
               </button>
               <div className="relative ml-2 border-l border-gray-300 dark:border-gray-700 pl-4 h-8 flex items-center">
                 {user ? (
