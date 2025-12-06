@@ -54,6 +54,12 @@ export const useRAGStream = () => {
         // 将 URL 数组序列化为 JSON 字符串发送
         formData.append('image_urls', JSON.stringify(imageUrls));
       }
+
+      const token = localStorage.getItem('auth_token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
       
       // ‼️ 注意：当使用 FormData 时，永远不要手动设置 Content-Type header。
       // 浏览器会自动设置，并包含正确的 boundary 分隔符。

@@ -13,9 +13,27 @@ import { HistorySidebar } from './components/HistorySidebar';
 import { historyManager } from './utils/historyManager';
 import { VisualizerModal } from './components/VisualizerModal';
 import { AppMode } from './visualizer/constants';
+import { useAuth } from './context/AuthContext';
+import { AuthModal } from './components/AuthModal';
+import { COLORS } from './constants';
 
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://183.134.101.139:8007';
+
+const UserIcon = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+    <circle cx="12" cy="7" r="4"></circle>
+  </svg>
+);
+
+const LogoutIcon = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+    <polyline points="16 17 21 12 16 7"></polyline>
+    <line x1="21" y1="12" x2="9" y2="12"></line>
+  </svg>
+);
 
 const ChatInputFooter: React.FC<{
   question: string;
@@ -145,6 +163,10 @@ const ChatInputFooter: React.FC<{
   );
 };
 function App() {
+  const { user, logout } = useAuth();
+  const [isAuthModalOpen, setAuthModalOpen] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+
   const [history, setHistory] = useState<QAPair[]>([]);
   const [question, setQuestion] = useState('');
   const { pendingFiles, setPendingFiles } = useAppContext();
@@ -175,7 +197,7 @@ function App() {
 
   const location = useLocation(); // 引入 location
 
-    const [isPinned, setIsPinned] = useState(false); // 默认固定
+  const [isPinned, setIsPinned] = useState(false); // 默认固定
   const [isHoveringSidebar, setIsHoveringSidebar] = useState(false);
   
   // 侧边栏是否可见 = 固定 OR 鼠标悬停中
@@ -342,7 +364,7 @@ function App() {
     }
   };
   
- useEffect(() => {
+  useEffect(() => {
     const loadAndProcessConversation = async (id: string) => {
       const locationState = location.state as { question?: string; isNewConversation?: boolean } | null;
       const stateQuestion = locationState?.question;
@@ -518,6 +540,10 @@ function App() {
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
       <VantaBackground />
+      <AuthModal 
+        isOpen={isAuthModalOpen} 
+        onClose={() => setAuthModalOpen(false)} 
+      />
       <VisualizerModal 
         isOpen={isVisualizerOpen} 
         pluginId={visualizerConfig?.pluginId} 
@@ -583,11 +609,56 @@ function App() {
               >
                 {shareText}
               </button>
+              <div className="relative ml-2 border-l border-gray-300 dark:border-gray-700 pl-4 h-8 flex items-center">
+                {user ? (
+                  // 已登录状态
+                  <div 
+                    onClick={() => setShowUserMenu(!showUserMenu)}
+                    className="flex items-center gap-2 cursor-pointer text-gray-700 dark:text-gray-300 hover:text-blue-500 transition-colors"
+                  >
+                    {/* 显示邮箱前缀 */}
+                    <span className="text-sm font-medium hidden sm:block">
+                      {user.email.split('@')[0]}
+                    </span>
+                    
+                    {/* 头像圆圈 */}
+                    <div className="w-8 h-8 rounded-full bg-gray-200 dark:bg-slate-700 flex items-center justify-center border border-gray-300 dark:border-gray-600">
+                      <UserIcon />
+                    </div>
+
+                    {/* 下拉菜单 */}
+                    {showUserMenu && (
+                      <div className="absolute top-full right-0 mt-2 w-32 bg-white dark:bg-slate-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg py-1 z-50">
+                        <button
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            logout(); 
+                            setShowUserMenu(false); 
+                          }}
+                          className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-50 dark:hover:bg-slate-700 flex items-center gap-2"
+                        >
+                          <LogoutIcon />
+                          Logout
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  // 未登录 (游客) 状态
+                  <button 
+                    onClick={() => setAuthModalOpen(true)}
+                    className="p-1.5 rounded-full text-gray-500 hover:text-blue-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-slate-800 transition-all"
+                    title="Login / Register"
+                  >
+                    <UserIcon />
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>
       </header>
-      <div className={`flex-grow pt-16 flex flex-col transition-all duration-300 ${isSidebarOpen ? 'pl-64' : 'pl-0'}`}>
+      <div className={`flex-grow pt-16 flex flex-col transition-all duration-300 ${isPinned ? 'pl-64' : 'pl-0'}`}>
       {!conversationId ? (
         // --- 主页布局 ---
         <main className="flex-grow pt-16 flex flex-col justify-center items-center p-4">
@@ -639,7 +710,7 @@ function App() {
             imageFiles={pendingFiles} 
             onFilesSelected={handleFilesSelected}
             onRemoveFile={handleRemoveFile}
-            className="fixed bottom-0 left-0 right-0"
+            className={`fixed bottom-0 right-0 transition-all duration-300 ${isPinned ? 'left-64' : 'left-0'}`}
           />
         </>
       )}

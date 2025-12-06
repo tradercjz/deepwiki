@@ -216,6 +216,7 @@ export const DEFAULTS = {
 // Visual Configuration
 export const COLORS = {
   background: '#050505',
+  themeBlue: '#1eb2f6ce', // 湖蓝色
   primary: '#00f0ff', // Cyan (Neutral Input)
   secondary: '#ff00aa', // Magenta (Accents)
   success: '#00ff41', // Matrix Green (Output)
