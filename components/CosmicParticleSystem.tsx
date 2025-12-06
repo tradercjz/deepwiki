@@ -10,12 +10,14 @@ const KEYWORDS = [
 const CONFIG = {
   particleCount: 6000,
   textParticleRatio: 0.6,
-  particleSize: 4.0,
+  particleSize: 5.5,
   color: 0x00f0ff,
   morphSpeed: 0.05,
   duration: 4000,
   dispersion: 1500
 };
+
+const FONT_SIZE = 150;
 
 const getTexture = () => {
   const canvas = document.createElement('canvas');
@@ -110,7 +112,7 @@ export const CosmicParticleSystem = () => {
       let index = 0;
 
       const updateText = (text: string) => {
-        const shapes = font.generateShapes(text, 60);
+        const shapes = font.generateShapes(text, FONT_SIZE);
         const points: THREE.Vector2[] = [];
         
         const tempGeo = new THREE.ShapeGeometry(shapes);
@@ -120,11 +122,11 @@ export const CosmicParticleSystem = () => {
         tempGeo.dispose();
 
         shapes.forEach((shape) => {
-          const shapePoints = shape.getSpacedPoints(Math.ceil(60 / 0.8));
+          const shapePoints = shape.getSpacedPoints(Math.ceil(FONT_SIZE / 0.8));
           points.push(...shapePoints);
           if (shape.holes && shape.holes.length > 0) {
              shape.holes.forEach(hole => {
-                 points.push(...hole.getSpacedPoints(Math.ceil(60 / 0.8)));
+                 points.push(...hole.getSpacedPoints(Math.ceil(FONT_SIZE / 0.8)));
              });
           }
         });
@@ -205,11 +207,18 @@ export const CosmicParticleSystem = () => {
 
       // Z 轴自适应
       const fovRad = (camera.fov * Math.PI) / 180;
-      let distance = (750 / 2) / (Math.tan(fovRad / 2) * camera.aspect);
-      distance *= 1.3;
-      camera.position.z = Math.max(400, Math.min(2000, distance));
+      
+      // ✨ [修改] 目标宽度 (Target Width)
+      // 之前是 750 (基于60号字)。现在字号 120 (翻倍)，宽度大约是 1500 左右。
+      // 我们设为 1600 以留出安全边距。
+      const targetTextWidth = 1600; 
 
-      // Y 轴固定偏移 (实现自然的桌面靠上/手机居中效果)
+      let distance = (targetTextWidth / 2) / (Math.tan(fovRad / 2) * camera.aspect);
+      distance *= 1.2; // 额外的宽松系数
+      
+      camera.position.z = Math.max(400, Math.min(2500, distance)); // 上限稍微放宽到 2500
+
+      // Y 轴固定偏移
       camera.position.y = -50; 
     };
 
