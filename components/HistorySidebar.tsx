@@ -166,39 +166,60 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
   };
 
   const displayItems = useMemo(() => {
-    let finalItems = [...items];
+    // 1. 复制现有列表，并将时间戳统一标准化为 timestamp number
+    let finalItems = items.map(item => ({
+      ...item,
+      timestamp: new Date(item.timestamp).getTime()
+    }));
 
-    const mergeItem = (itemToMerge: { id: string; title: string; timestamp: number }) => {
+    // ✨✨✨ [修改核心] 增加 updateTimestamp 参数 ✨✨✨
+    // forceUpdateTime: 
+    //   true  -> (流式生成中) 强制更新时间戳，这会导致条目跳到最前面
+    //   false -> (仅查看) 只更新标题，保留原有的时间戳，位置不变
+    const mergeItem = (itemToMerge: { id: string; title: string; timestamp: number | string }, forceUpdateTime: boolean) => {
       const index = finalItems.findIndex(i => i.id === itemToMerge.id);
+      
+      const mergeTime = new Date(itemToMerge.timestamp).getTime();
+
       if (index === -1) {
+        // 情况 A: 列表中没有这个 ID (比如新建的会话) -> 必须插到最前面
         finalItems.unshift({
           id: itemToMerge.id,
           title: itemToMerge.title,
-          timestamp: itemToMerge.timestamp
+          timestamp: mergeTime
         });
       } else {
+        // 情况 B: 列表中已有这个 ID
         finalItems[index] = {
             ...finalItems[index],
-            title: itemToMerge.title,
-            timestamp: Math.max(Number(finalItems[index].timestamp), itemToMerge.timestamp)
+            title: itemToMerge.title, // 标题总是更新（可能用户改名或生成了新标题）
+            
+            // 关键修复逻辑：
+            // 如果是流式生成 (forceUpdateTime=true)，取最新时间 -> 置顶
+            // 如果是普通查看 (forceUpdateTime=false)，保留列表里原有的时间 -> 原地不动
+            timestamp: forceUpdateTime 
+                ? Math.max(finalItems[index].timestamp as number, mergeTime) 
+                : finalItems[index].timestamp as number
         };
       }
     };
 
+    // 2. 处理正在生成的对话 -> 传入 true (强制置顶)
     if (streamingChat) {
-        mergeItem(streamingChat);
+        mergeItem(streamingChat, true);
     }
 
+    // 3. 处理当前查看的对话 -> 传入 false (仅查看，位置不动)
+    // 注意：如果这真的是一个新会话（上面 index === -1 的情况），它依然会被插到最前面，符合预期
     if (currentChat) {
-        mergeItem(currentChat);
+        mergeItem(currentChat, false);
     }
 
-    finalItems.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    // 4. 排序
+    finalItems.sort((a, b) => (b.timestamp as number) - (a.timestamp as number));
     
     return finalItems;
   }, [items, currentChat, streamingChat]);
-
-
 
   return (
     <>
