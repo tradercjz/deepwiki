@@ -153,8 +153,27 @@ const ChatInputFooter: React.FC<{
                 <button onClick={() => fileInputRef.current?.click()} disabled={isLoading} className="p-2 text-gray-500 hover:text-blue-500 dark:text-gray-400 dark:hover:text-blue-400 rounded-full transition-colors" aria-label="Attach images">
                   <PaperClipIcon />
                 </button>
-                <button onClick={handleAsk} disabled={isLoading || (!question.trim() && imageFiles.length === 0)} className="p-2 rounded-full text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors" aria-label="Send message">
-                  <DolphinIcon size={20} mirrored={false} />
+                <button 
+                  onClick={handleAsk} 
+                  disabled={isLoading || (!question.trim() && imageFiles.length === 0)} 
+                  // 注意：如果你之前根据我的建议改了 customColor，这里可以用 style={{ backgroundColor: customColor }} 
+                  // 如果没有，保持下面的 className 即可
+                  className="p-2 rounded-full text-white bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all duration-200 flex items-center justify-center" 
+                  aria-label="Send message"
+                >
+                  <svg 
+                    width="24" 
+                    height="24" 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    strokeWidth="2.5" 
+                    strokeLinecap="round" 
+                    strokeLinejoin="round"
+                  >
+                    <path d="M12 19V5"></path>
+                    <path d="M5 12l7-7 7 7"></path>
+                  </svg>
                 </button>
               </div>
             </div>
@@ -857,7 +876,7 @@ function App() {
               onRemoveFile={handleRemoveFile}
               className="w-full"
             />
-            <label className="flex items-center space-x-2 cursor-pointer text-sm text-gray-500 dark:text-gray-400">
+            {/* <label className="flex items-center space-x-2 cursor-pointer text-sm text-gray-500 dark:text-gray-400">
                 <input
                   type="checkbox"
                   checked={isDebugMode}
@@ -865,7 +884,7 @@ function App() {
                   className="form-checkbox h-4 w-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
                 />
                 <span>Debug Mode</span>
-              </label>
+              </label> */}
           </div>
         </main>
       ) : (
