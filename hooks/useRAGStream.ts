@@ -154,10 +154,14 @@ export const useRAGStream = () => {
     } catch (err: any) {
       setError(err.message || 'An unknown error occurred.');
     } finally {
+      // 1. 先保存数据！确保父组件的状态更新了，包含了完整的回答
+      // 这样当 isLoading 变为 false 时，UI 能够立即从历史记录里读到这条消息
+      onComplete(finalAnswer, finalSources, conversationId);
+
+      // 2. 再重置流的状态
       setIsLoading(false);
       setStreamingId(null); 
       setStatusMessage('');
-      onComplete(finalAnswer, finalSources, conversationId);
     }
   }, []);
 

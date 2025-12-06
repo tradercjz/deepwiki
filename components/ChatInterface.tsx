@@ -338,8 +338,6 @@ const CodeBlock: React.FC<{
         return null;
     }, [content]);
 
-    console.log("Content:", content, "Detected Mode:", detectedMode);
-
     const handleCopy = () => {
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(content).then(() => {

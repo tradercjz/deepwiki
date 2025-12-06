@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { historyManager } from "../utils/historyManager";
 import { useAuth } from '../context/AuthContext';
@@ -32,7 +32,9 @@ interface HistorySidebarProps {
   onTogglePin: () => void;
   onClose: () => void;
   onNewChat?: () => void; // Optional
-  generatingId: string | null; 
+  generatingId: string | null;
+  currentChat: { id: string; title: string; timestamp: number } | null;
+  streamingChat: { id: string; title: string; timestamp: number } | null;
 }
 
 // 一个简单的 Loading 动画组件 (三点跳动)
@@ -49,7 +51,9 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
   isPinned, 
   onTogglePin, 
   onClose,
-  generatingId
+  generatingId,
+  currentChat,
+  streamingChat
 }) => {
   const { user } = useAuth(); // 获取登录用户
   const [items, setItems] = useState<UnifiedHistoryItem[]>([]);
@@ -215,6 +219,48 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
     }
   };
 
+  const displayItems = useMemo(() => {
+    // 1. 复制现有列表 (来自 API 或 本地存储)
+    let finalItems = [...items];
+
+    // 定义一个辅助函数：尝试插入或更新 item
+    const mergeItem = (itemToMerge: { id: string; title: string; timestamp: number }) => {
+      const index = finalItems.findIndex(i => i.id === itemToMerge.id);
+      if (index === -1) {
+        // 不在列表中 -> 插到最前面
+        finalItems.unshift({
+          id: itemToMerge.id,
+          title: itemToMerge.title,
+          timestamp: itemToMerge.timestamp
+        });
+      } else {
+        // 在列表中 -> 更新信息 (比如标题可能变了，或者时间戳更新了)
+        finalItems[index] = {
+            ...finalItems[index],
+            title: itemToMerge.title, // 优先用最新的标题
+            timestamp: Math.max(Number(finalItems[index].timestamp), itemToMerge.timestamp)
+        };
+      }
+    };
+
+    // 2. 合并“后台正在生成的对话” (优先级高，确保它一定显示)
+    if (streamingChat) {
+        mergeItem(streamingChat);
+    }
+
+    // 3. 合并“当前正在看的对话” (防止 API 还没返回当前对话)
+    if (currentChat) {
+        // 如果 currentChat 和 streamingChat 是同一个，这里会走 update 逻辑，没问题
+        mergeItem(currentChat);
+    }
+
+    // 4. 再次排序，确保最新的在最上面 (不管是插入的还是更新的)
+    finalItems.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    
+    return finalItems;
+  }, [items, currentChat, streamingChat]);
+
+
 
   return (
     <>
@@ -280,13 +326,13 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
             <div className="flex justify-center items-center h-20">
               <div className="animate-spin rounded-full h-5 w-5 border-2 border-gray-300 border-t-blue-500"></div>
             </div>
-          ) : items.length === 0 ? (
+          ) : displayItems.length === 0 ? (
             <div className="flex flex-col items-center justify-center mt-10 text-gray-400 dark:text-gray-600 text-sm gap-2">
               <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
               <span>No history yet.</span>
             </div>
           ) : (
-            items.map((item) => (
+            displayItems.map((item) => (
               <div
                 key={item.id}
                 onClick={() => handleSelect(item.id)}

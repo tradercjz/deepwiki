@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ChatInterface } from './components/ChatInterface';
 import { QAPair, RAGSource, ActiveHighlight } from './types';
 import { useRAGStream } from './hooks/useRAGStream';
@@ -183,6 +183,15 @@ function App() {
   } = useRAGStream();
 
   const isGeneratingRef = useRef(false);
+
+  // 用于存储正在生成的对话的上下文，防止切换路由时丢失
+  const activeStreamRef = useRef<{
+    id: string;
+    question: string;
+    images: File[];
+    answer: string;
+    sources: Record<string, any>;
+  } | null>(null);
   
   const mainContentRef = useRef<HTMLDivElement>(null);
   const [activeFocus, setActiveFocus] = useState<{ qaId: string; highlight: ActiveHighlight } | null>(null);
@@ -315,6 +324,14 @@ function App() {
       if (!user) historyManager.saveConversation(conversationId, newQuestion);
       else window.dispatchEvent(new Event('history-updated')); // 让 Sidebar 重新拉取排序
 
+      activeStreamRef.current = {
+          id: conversationId,
+          question: newQuestion,
+          images: currentImages,
+          answer: '',
+          sources: {}
+      };
+
       startStream(
         newQuestion,
         conversationId,
@@ -326,10 +343,24 @@ function App() {
             sources: finalSources,
             images: currentImages
           };
-          setHistory(currentHist => currentHist.map(p => p.id === qaPairShell.id ? finalQAPair : p));
+          // 获取当前的 URL ID (最准确的判断用户在哪里的方式)
+          const currentUrlId = window.location.pathname.split('/').pop();
+
+          if (currentUrlId === conversationId) {
+             const finalQAPair: QAPair = {
+               id: qaPairShell.id,
+               question: newQuestion,
+               answer: fullAnswer,
+               sources: finalSources,
+               images: currentImages
+             };
+             setHistory(currentHist => currentHist.map(p => p.id === qaPairShell.id ? finalQAPair : p));
+          }
           if (!user) historyManager.saveConversation(conversationId, newQuestion);
           else window.dispatchEvent(new Event('history-updated'));
 
+          processedNewChatIds.current.delete(conversationId);
+          isGeneratingRef.current = false;
         },
         pendingFiles
       );
@@ -398,6 +429,15 @@ function App() {
         if (!questionToAsk && pendingFiles.length > 0) questionToAsk = "Analyze the attached file(s).";
         if (questionToAsk === undefined) questionToAsk = "New Chat";
 
+        // 初始化缓存 Ref
+        activeStreamRef.current = {
+            id: id,
+            question: questionToAsk,
+            images: pendingFiles,
+            answer: '',
+            sources: {}
+        };
+
         // 1. 初始化 UI 状态
         const qaPairShell: QAPair = { 
             id: `qa-${Date.now()}`, 
@@ -446,9 +486,38 @@ function App() {
         return; 
       }
 
+      // 如果这个 ID 在 processedNewChatIds 中，说明它是一个正在生成的、还没入库的新会话。
+      // 我们不能 fetch (因为库里没有)，也不能直接 return (否则界面会残留上一个会话的数据)。
+      // 必须手动从 activeStreamRef 恢复它的初始状态。
+      if (processedNewChatIds.current.has(id)) {
+        console.log('[App] Reconstructing active new-chat from memory...', id);
+        
+        // 1. 必须先清空当前显示的历史 (比如之前显示的 Session B)
+        setHistory([]); 
+
+        // 2. 从 Ref 中恢复这个正在生成的会话视图
+        if (activeStreamRef.current && activeStreamRef.current.id === id) {
+             const liveQAPair: QAPair = {
+                id: `qa-live-${Date.now()}`, // 临时 ID
+                question: activeStreamRef.current.question,
+                answer: currentAnswer || activeStreamRef.current.answer, // 优先用最新的 currentAnswer，防止回退
+                sources: activeStreamRef.current.sources,
+                images: activeStreamRef.current.images
+            };
+            setHistory([liveQAPair]);
+        }
+        return; // 阻断后续的 fetch，因为这还是个内存中的会话
+      }
+
+      // 只有当 ID 不在 processedNewChatIds 时，才去 fetch
+      // 下面是原有的 fetch 逻辑，不用动，但去掉了外层的 if (!processedNewChatIds.has(id)) 包裹
+      
+      // 切换 ID 时，先清空历史
+      setHistory([]); 
+
       // --- B. 处理已有会话加载 (切回来时走这里) ---
       // 只有当这个 ID 不在“正在处理”列表中，或者它之前处理完了(被delete了)，才去拉取
-      if (!processedNewChatIds.current.has(id)) {
+  
         try {
             // ✨ 如果正在流式传输中切回来（比如你切到 B 又切回 A），不要重新拉取，
             // 否则会覆盖掉当前流式 hook 里的状态。
@@ -461,17 +530,27 @@ function App() {
                headers: user ? { 'Authorization': `Bearer ${user.token}` } : {} // 确保带 Token
             });
             
+            let loadedHistory: any[] = [];
+            
             if (!response.ok) {
-                if (response.status !== 404) throw new Error('Conversation not found.');
-                return;
+                // 如果是 404，且这个 ID 正在流式生成中，说明是新会话还没入库
+                // 我们认为这是"正常的"，将 loadedHistory 设为空数组，继续往下走去合并 Ref
+                if (response.status === 404 && isLoading && streamingId === id) {
+                    console.log('[App] New chat not found in DB yet, constructing from active stream...');
+                    loadedHistory = [];
+                } else {
+                    // 其他错误则抛出
+                    if (response.status !== 404) throw new Error('Conversation not found.');
+                    return;
+                }
+            } else {
+                // 正常响应
+                const data = await response.json();
+                loadedHistory = data.history || [];
             }
-            const data = await response.json();
+
             
-            // ... (解析 data.history 的逻辑保持不变) ...
-            const loadedHistory = data.history || [];
             const formattedHistory: QAPair[] = [];
-            
-            // 解析历史记录
             for (let i = 0; i < loadedHistory.length; i += 2) {
                 const userMsg = loadedHistory[i];
                 const assistantMsg = loadedHistory[i + 1];
@@ -490,15 +569,40 @@ function App() {
                     });
                 }
             }
+            
+
+            if (isLoading && streamingId === id && activeStreamRef.current && activeStreamRef.current.id === id) {
+                console.log('[App] Merging active stream into view');
+                
+                const liveQAPair: QAPair = {
+                    id: `qa-live-${Date.now()}`,
+                    question: activeStreamRef.current.question,
+                    answer: activeStreamRef.current.answer,
+                    sources: activeStreamRef.current.sources,
+                    images: activeStreamRef.current.images
+                };
+
+                // 简单的去重逻辑：如果 API 返回的最后一条问题和当前正在生成的一样，说明 API 已经包含了这条
+                // 此时用 liveQAPair 覆盖它（因为 live 的 answer 是最新的流式内容）
+                const lastHistoryItem = formattedHistory[formattedHistory.length - 1];
+                if (lastHistoryItem && lastHistoryItem.question === liveQAPair.question) {
+                    formattedHistory[formattedHistory.length - 1] = liveQAPair;
+                } else {
+                    formattedHistory.push(liveQAPair);
+                }
+            }
+
             setHistory(formattedHistory);
             
-            // 如果最后一条是用户发的，且没有助理回答（异常中断），可以尝试继续生成（逻辑保持不变）
-            // ...
+            const lastMessage = loadedHistory[loadedHistory.length - 1];
+            if (loadedHistory.length > 0 && lastMessage && lastMessage.role === 'user' && !isLoading) {
+                 // 这里通常不需要做什么，因为如果不在 isLoading 状态，说明已经断了
+            }
         } catch (err: any) {
             console.error(err);
             setError(err.message);
         }
-      }
+      
     };
 
     if (conversationId) loadAndProcessConversation(conversationId);
@@ -507,26 +611,36 @@ function App() {
   
   // useEffect 2: 负责将流式数据实时更新到 UI
   useEffect(() => {
-    // 只有当「正在加载」且「正在流式传输的 ID」等于「当前视图的 ID」时，才更新 UI
-    if (isLoading && streamingId === conversationId) {
-      setHistory(prevHistory => {
-        if (prevHistory.length === 0) return prevHistory;
-        
-        const lastQAPair = prevHistory[prevHistory.length - 1];
-        
-        // 用最新的流数据更新最后一个元素
-        const streamingQAPair: QAPair = {
-            ...lastQAPair,
-            answer: currentAnswer,
-            sources: sources,
-        };
-        
-        const newHistory = [...prevHistory];
-        newHistory[newHistory.length - 1] = streamingQAPair;
-        return newHistory;
-      });
+    // 只要处于加载状态，且有 streamingId，我们就维护缓存
+    if (isLoading && streamingId) {
+      
+      // 1. ✨ 更新后台缓存 (这是源头)
+      if (activeStreamRef.current && activeStreamRef.current.id === streamingId) {
+        activeStreamRef.current.answer = currentAnswer;
+        activeStreamRef.current.sources = sources;
+      }
+
+      // 2. ✨ 如果用户当前正停留在该对话页面，则同步更新 UI
+      if (conversationId === streamingId) {
+        setHistory(prevHistory => {
+          if (prevHistory.length === 0) return prevHistory;
+          
+          const lastQAPair = prevHistory[prevHistory.length - 1];
+          
+          // 构造新的 Pair
+          const streamingQAPair: QAPair = {
+              ...lastQAPair,
+              answer: currentAnswer,
+              sources: sources,
+          };
+          
+          const newHistory = [...prevHistory];
+          newHistory[newHistory.length - 1] = streamingQAPair;
+          return newHistory;
+        });
+      }
     }
-  }, [currentAnswer, sources, isLoading, streamingId, conversationId]); 
+  }, [currentAnswer, sources, isLoading, streamingId, conversationId]);
 
 
   const handleFilesSelected = (newFiles: File[]) => {
@@ -571,6 +685,29 @@ function App() {
     setIsVisualizerOpen(true);
   };
 
+  const isStreamingCurrentSession = isLoading && streamingId === conversationId;
+
+  const currentChatInfo = useMemo(() => {
+    if (conversationId && history.length > 0) {
+      // 获取第一条用户的问题作为标题
+      const firstUserMsg = history.find(h => h.sources !== undefined); // QAPair结构
+      const title = firstUserMsg?.question || "New Chat";
+      return { id: conversationId, title, timestamp: Date.now() };
+    }
+    return null;
+  }, [conversationId, history]);
+
+  // 即使你切换了路由，这个 info 依然存在，因为它基于 streamingId 和 ref
+  const streamingChatInfo = useMemo(() => {
+    if (isLoading && streamingId && activeStreamRef.current && activeStreamRef.current.id === streamingId) {
+        return {
+            id: streamingId,
+            title: activeStreamRef.current.question || "New Chat",
+            timestamp: Date.now()
+        };
+    }
+    return null;
+  }, [isLoading, streamingId]);
 
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
@@ -597,6 +734,8 @@ function App() {
                 onTogglePin={togglePin}
                 onClose={() => setIsHoveringSidebar(false)} 
                 generatingId={isLoading ? streamingId : null}
+                currentChat={currentChatInfo}
+                streamingChat={streamingChatInfo}
             />
         </div>
       </div>
@@ -729,7 +868,7 @@ function App() {
               <div className="pt-8">
                 <ChatInterface 
                   history={history}
-                  streamingData={{ currentAnswer, sources, statusMessage, error, isLoading }}
+                  streamingData={{ currentAnswer, sources, statusMessage, error, isLoading:isStreamingCurrentSession }}
                   onCitationClick={handleCitationClick}
                   activeFocus={activeFocus}
                   onShowVisualizer={handleShowVisualizer}
