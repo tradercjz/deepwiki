@@ -37,13 +37,12 @@ interface HistorySidebarProps {
   streamingChat: { id: string; title: string; timestamp: number } | null;
 }
 
-// 一个简单的 Loading 动画组件 (三点跳动)
-const GeneratingIndicator = () => (
-  <div className="flex space-x-1 items-center ml-2">
-    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-    <div className="w-1.5 h-1.5 bg-blue-500 rounded-full animate-bounce"></div>
-  </div>
+// ✨ [修改 1] 新增：ChatGPT 风格旋转 Loading
+const LoadingSpinner = () => (
+  <svg className="animate-spin h-4 w-4 text-blue-600 dark:text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+  </svg>
 );
 
 export const HistorySidebar: React.FC<HistorySidebarProps> = ({
@@ -101,65 +100,19 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
     }
   };
 
-  const handleDelete = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation(); // 阻止冒泡，防止触发点击进入对话
-
-    // 1. 确认删除
-    if (!confirm('Are you sure you want to delete this conversation?')) {
-      return;
-    }
-
-    // 记录要删除的 ID 是否是当前正在查看的 ID
-    const isCurrentChat = conversationId === id;
-
-    if (user) {
-      // --- 情况 A: 已登录 (调用 API) ---
-      try {
-        // 乐观更新：先从 UI 移除，让用户感觉很快
-        const originalItems = [...items];
-        setItems(prev => prev.filter(item => item.id !== id));
-
-        // 调用接口
-        await historyApi.delete(id);
-        
-        // 如果 API 失败了，是不是要回滚？通常对于删除操作，
-        // 除非网络极差，否则不需要太复杂的 rollback，报错提示即可。
-      } catch (err) {
-        console.error("Failed to delete cloud conversation", err);
-        alert("Failed to delete conversation from cloud.");
-        loadHistory(); // 失败后重新拉取列表以恢复
-        return; 
-      }
-    } else {
-      // --- 情况 B: 游客 (操作 LocalStorage) ---
-      historyManager.deleteConversation(id);
-      // 更新 UI
-      setItems(prev => prev.filter(item => item.id !== id));
-    }
-
-    // 3. 后置处理：如果删除了当前正在看的对话，跳回主页
-    if (isCurrentChat) {
-      navigate('/');
-    }
-  };
-
   useEffect(() => {
     loadHistory();
 
-    // 监听两个事件：
-    // 1. 'history-updated': 本地数据变动（如新建对话）或 AuthContext 触发的刷新
-    // 2. user 变化: 登录/登出切换时触发
     const handleStorageChange = () => loadHistory();
     window.addEventListener("history-updated", handleStorageChange);
 
     return () => {
       window.removeEventListener("history-updated", handleStorageChange);
     };
-  }, [user]); // 依赖 user，切换账号自动刷新
+  }, [user]);
 
   const handleSelect = (id: string) => {
     navigate(`/search/${id}`);
-    // 如果是移动端或未固定状态，选择后关闭侧边栏
     if (window.innerWidth < 768 || (!isPinned && window.innerWidth >= 768)) {
       onClose();
     }
@@ -181,7 +134,6 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
     setIsDeleteModalOpen(true);
   };
 
-  // ✨ [新增] 真正的执行删除逻辑 (从原来的 handleDelete 改造而来)
   const confirmDelete = async () => {
     if (!deleteTargetId) return;
     
@@ -191,70 +143,56 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
 
     try {
       if (user) {
-        // --- 登录模式 ---
-        // 乐观更新：先从 UI 移除
         setItems(prev => prev.filter(item => item.id !== id));
-        // 调用 API
         await historyApi.delete(id);
       } else {
-        // --- 游客模式 ---
         historyManager.deleteConversation(id);
         setItems(prev => prev.filter(item => item.id !== id));
       }
 
-      // 如果删除了当前对话，跳回主页
       if (isCurrentChat) {
         navigate('/');
       }
 
-      // 关闭弹窗
       setIsDeleteModalOpen(false);
       setDeleteTargetId(null);
     } catch (err) {
       console.error("Delete failed", err);
-      alert("Delete failed, please try again."); // 只有真正出错才弹系统窗
-      loadHistory(); // 回滚数据
+      alert("Delete failed, please try again.");
+      loadHistory();
     } finally {
       setIsDeleting(false);
     }
   };
 
   const displayItems = useMemo(() => {
-    // 1. 复制现有列表 (来自 API 或 本地存储)
     let finalItems = [...items];
 
-    // 定义一个辅助函数：尝试插入或更新 item
     const mergeItem = (itemToMerge: { id: string; title: string; timestamp: number }) => {
       const index = finalItems.findIndex(i => i.id === itemToMerge.id);
       if (index === -1) {
-        // 不在列表中 -> 插到最前面
         finalItems.unshift({
           id: itemToMerge.id,
           title: itemToMerge.title,
           timestamp: itemToMerge.timestamp
         });
       } else {
-        // 在列表中 -> 更新信息 (比如标题可能变了，或者时间戳更新了)
         finalItems[index] = {
             ...finalItems[index],
-            title: itemToMerge.title, // 优先用最新的标题
+            title: itemToMerge.title,
             timestamp: Math.max(Number(finalItems[index].timestamp), itemToMerge.timestamp)
         };
       }
     };
 
-    // 2. 合并“后台正在生成的对话” (优先级高，确保它一定显示)
     if (streamingChat) {
         mergeItem(streamingChat);
     }
 
-    // 3. 合并“当前正在看的对话” (防止 API 还没返回当前对话)
     if (currentChat) {
-        // 如果 currentChat 和 streamingChat 是同一个，这里会走 update 逻辑，没问题
         mergeItem(currentChat);
     }
 
-    // 4. 再次排序，确保最新的在最上面 (不管是插入的还是更新的)
     finalItems.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     
     return finalItems;
@@ -264,7 +202,6 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
 
   return (
     <>
-      {/* 移动端遮罩层 */}
       {isOpen && (
         <div
           className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-30 md:hidden"
@@ -272,7 +209,6 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
         />
       )}
 
-      {/* 侧边栏主体 */}
       <div
         className={`
         fixed top-0 bottom-0 left-0 z-40
@@ -286,7 +222,6 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
         <div className="h-16 flex items-center justify-between px-4 border-b border-gray-200 dark:border-gray-800 shrink-0">
           <div className="flex items-center gap-2 font-bold text-gray-700 dark:text-gray-200">
              <span>History</span>
-             {/* 状态标签 */}
              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
                user 
                  ? 'border-blue-500 text-blue-500 bg-blue-500/10' 
@@ -297,7 +232,6 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
           </div>
 
           <div className="flex items-center gap-1">
-            {/* 固定按钮 (仅桌面端显示) */}
             <button 
               onClick={onTogglePin}
               className={`hidden md:flex p-1.5 rounded-md transition-colors ${
@@ -310,13 +244,7 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
               <PinIcon filled={isPinned} />
             </button>
             
-            {/* 关闭按钮 (仅移动端显示) */}
-            <button
-              onClick={onClose}
-              className="md:hidden p-2 text-gray-500"
-            >
-              ✕
-            </button>
+            <button onClick={onClose} className="md:hidden p-2 text-gray-500">✕</button>
           </div>
         </div>
 
@@ -332,54 +260,57 @@ export const HistorySidebar: React.FC<HistorySidebarProps> = ({
               <span>No history yet.</span>
             </div>
           ) : (
-            displayItems.map((item) => (
-              <div
-                key={item.id}
-                onClick={() => handleSelect(item.id)}
-                className={`
-                  group relative flex flex-col px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-200 border border-transparent
-                  ${
-                    conversationId === item.id
-                      ? "bg-white dark:bg-slate-800 shadow-sm border-gray-200 dark:border-gray-700"
-                      : "hover:bg-gray-200/50 dark:hover:bg-slate-800/50 text-gray-600 dark:text-gray-400"
-                  }
-                `}
-              >
-                {/* 标题 */}
-                <div className={`text-sm font-medium truncate pr-6 ${
-                   conversationId === item.id ? 'text-blue-600 dark:text-blue-400' : ''
-                }`}>
-                  {item.title}
-                </div>
-                {generatingId === item.id && (
-                        <GeneratingIndicator />
+            displayItems.map((item) => {
+              // ✨ [修改 2] 判断是否正在生成
+              const isGenerating = generatingId === item.id;
+              
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => handleSelect(item.id)}
+                  className={`
+                    group relative flex flex-col px-3 py-2.5 rounded-lg cursor-pointer transition-all duration-200 border border-transparent
+                    ${
+                      conversationId === item.id
+                        ? "bg-white dark:bg-slate-800 shadow-sm border-gray-200 dark:border-gray-700"
+                        : "hover:bg-gray-200/50 dark:hover:bg-slate-800/50 text-gray-600 dark:text-gray-400"
+                    }
+                  `}
+                >
+                  {/* 标题 - 右侧留出 padding 给 Spinner 或 Delete */}
+                  <div className={`text-sm font-medium truncate pr-7 ${
+                    conversationId === item.id ? 'text-blue-600 dark:text-blue-400' : ''
+                  }`}>
+                    {item.title}
+                  </div>
+
+                  {/* ✨ [修改 3] 右侧状态栏：互斥显示 Loading 或 删除按钮 */}
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6">
+                    {isGenerating ? (
+                        // 状态 A: 正在生成 -> 显示旋转圆圈
+                        <LoadingSpinner />
+                    ) : (
+                        // 状态 B: 正常 -> hover 显示删除按钮 (且不在整体 loading 时)
+                        !isLoading && (
+                            <button
+                                onClick={(e) => {
+                                e.stopPropagation();
+                                handleRequestDelete(e, item.id);
+                                }}
+                                className="p-1 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-slate-700 rounded opacity-0 group-hover:opacity-100 transition-all"
+                                title="Delete conversation"
+                            >
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="3 6 5 6 21 6"></polyline>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                </svg>
+                            </button>
+                        )
                     )}
-
-                {/* 时间 (可选)
-                <div className="text-[10px] text-gray-400 mt-0.5">
-                  {new Date(item.timestamp).toLocaleDateString()} 
-                  {' ' + new Date(item.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                </div> */}
-
-                {/* Delete Button (仅当鼠标 Hover 且未加载时显示) */}
-                {!isLoading && (
-                    <button
-                    onClick={(e) => {
-                      e.stopPropagation(); // 阻止冒泡：防止触发 handleSelect
-                      handleRequestDelete(e, item.id);
-                    }}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 p-2 text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-full opacity-0 group-hover:opacity-100 transition-all z-10"
-                    title="Delete conversation"
-                    // ⚠️ 关键：之前这里可能有 disabled={!!user}，一定要删掉！
-                  >
-                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                     <polyline points="3 6 5 6 21 6"></polyline>
-                     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                   </svg>
-                 </button>
-                )}
-              </div>
-            ))
+                  </div>
+                </div>
+              );
+            })
           )}
         </div>
 
