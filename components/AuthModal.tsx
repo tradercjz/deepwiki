@@ -183,7 +183,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         
         {view === 'login' && (
           <form onSubmit={handleLogin}>
-            <h2 style={styles.title}>System Login</h2>
+            <h2 style={styles.title}>Login</h2>
             {error && <div style={styles.error}>{error}</div>}
             <input 
               style={styles.input} 
@@ -212,7 +212,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         {view === 'register' && (
           <form onSubmit={handleRegister}>
-            <h2 style={{...styles.title, color: COLORS.secondary}}>New User</h2>
+            <h2 style={{...styles.title}}>New User</h2>
             {error && <div style={styles.error}>{error}</div>}
             <input 
               style={styles.input} 
@@ -230,7 +230,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               onChange={e => setPassword(e.target.value)} 
               required 
             />
-            <button style={{...styles.button, backgroundColor: COLORS.secondary, color: '#fff'}} type="submit" disabled={loading}>
+            <button style={{...styles.button, color: '#fff'}} type="submit" disabled={loading}>
               {loading ? 'Processing...' : 'REGISTER'}
             </button>
             <div style={styles.link} onClick={() => { reset(); setView('login'); }}>
