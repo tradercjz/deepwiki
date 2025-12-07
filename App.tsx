@@ -224,6 +224,10 @@ function App() {
   const { conversationId } = useParams<{ conversationId?: string }>();
   const navigate = useNavigate();
   const initialLoadRef = useRef(false);
+
+  // ✨ 如果有 conversationId (即在对话页)，则为 true
+  const isChatting = !!conversationId;
+
   
   // hoverAreaRef 用于检测鼠标是否在屏幕左边缘
   const hoverAreaRef = useRef<HTMLDivElement>(null);
@@ -736,7 +740,7 @@ function App() {
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
       {/* <VantaBackground />
       <FloatingKeywordsOverlay /> */}
-      <CosmicParticleSystem />
+      <CosmicParticleSystem isSlow={isChatting}/>
       <AuthModal 
         isOpen={isAuthModalOpen} 
         onClose={() => setAuthModalOpen(false)} 
