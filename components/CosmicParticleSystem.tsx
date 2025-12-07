@@ -8,10 +8,10 @@ const KEYWORDS = [
 ];
 
 const CONFIG = {
-  particleCount: 6000,   // 稍微增加粒子数，因为散射后需要更多点来维持辨识度
+  particleCount: 6000,
   textParticleRatio: 0.65,
-  particleSize: 5.0,     // 保持较大尺寸
-  color: 0x00f0ff,
+  particleSize: 6.0,     // ✨ 稍微调大一点，更有光晕感
+  color: 0xfffee0,       // ✨ 暖白色 (Sunlight/Starlight)
   morphSpeed: 0.05,
   duration: 4000,
   dispersion: 1500
@@ -26,10 +26,11 @@ const getTexture = () => {
   const context = canvas.getContext('2d');
   if (context) {
     const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
-    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)'); 
-    gradient.addColorStop(0.2, 'rgba(200, 255, 255, 0.9)');
-    gradient.addColorStop(0.5, 'rgba(0, 200, 255, 0.3)');
-    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    // ✨ [核心修改] 模拟太阳光晕
+    gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');      // 核心：纯白高亮
+    gradient.addColorStop(0.2, 'rgba(255, 240, 200, 0.9)');  // 内圈：暖白
+    gradient.addColorStop(0.5, 'rgba(255, 200, 100, 0.4)');  // 外圈：金黄色光晕
+    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)');            // 边缘：透明
     context.fillStyle = gradient;
     context.fillRect(0, 0, 32, 32);
   }
@@ -96,7 +97,7 @@ export const CosmicParticleSystem = () => {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       transparent: true,
-      opacity: 0.8
+      opacity: 0.9
     });
 
     const particles = new THREE.Points(geometry, material);
@@ -266,7 +267,10 @@ export const CosmicParticleSystem = () => {
       ref={mountRef} 
       className="fixed top-0 left-0 w-full h-full -z-10 bg-black"
       style={{ 
-        background: 'radial-gradient(circle at center, #0b1026 0%, #000000 100%)' 
+        // ✨ [核心修改] 深孔雀蓝背景
+        // #001f2b: 深孔雀蓝/Teal
+        // #000000: 纯黑边缘
+        background: 'radial-gradient(circle at center, #001f2b 0%, #00080a 60%, #000000 100%)' 
       }} 
     />
   );
