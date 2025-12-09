@@ -20,7 +20,27 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
   const CONTEXT_LINES = 3;
   const EXPAND_AMOUNT = 10;
 
-  const fullUrl = `https://github.com/tradercjz/documentation/tree/main/${source.file_path}`;
+  const fullUrl = useMemo(() => {
+    // 1. 解码路径
+    const rawPath = decodeURIComponent(source.file_path.trim());
+
+    // 2. 🚫 忽略列表：如果是 qa/ 或 qa_db/ 开头，不生成链接
+    if (rawPath.startsWith('qa/') || rawPath.startsWith('qa_db/')) {
+      return null;
+    }
+
+    // 3. 判断是否为 Confluence 文档
+    if (rawPath.startsWith('confluence/')) {
+      let pageId = rawPath.replace(/^confluence\//, '');
+      pageId = pageId.replace(/\.md$/i, '');
+      return `https://dolphindb1.atlassian.net/wiki/spaces/ProductSupportAfterSales/pages/${pageId}`;
+    }
+
+    // 4. 默认跳转 GitHub
+    return `https://github.com/tradercjz/documentation/tree/main/${source.file_path}`;
+  }, [source.file_path]);
+
+  
 
   const handleCopy = () => {
     navigator.clipboard.writeText(fullUrl).then(() => {
@@ -185,6 +205,8 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
 
   }, [citations, highlight, source.content, source.metadata, expandedRanges]);
   
+  const fileName = source.file_path.split('/').pop() || source.file_path;
+
   return (
     <div
       data-filepath={source.file_path}
@@ -195,17 +217,26 @@ const SingleSourceDisplay: React.FC<SingleSourceDisplayProps> = ({ source, isPar
     >
       <div className="flex justify-between items-center px-3 py-2 border-b border-gray-200 dark:border-gray-800">
         <h3 className="font-mono text-sm font-semibold truncate text-gray-700 dark:text-gray-300" title={source.file_path}>
-          <a href={fullUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
-            {source.file_path.split('/').pop() || source.file_path}
-          </a>
+          {fullUrl ? (
+            <a href={fullUrl} target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
+              {fileName}
+            </a>
+          ) : (
+            <span className="cursor-default">
+              {fileName}
+            </span>
+          )}
         </h3>
-        <button 
+        {fullUrl? (
+            <button 
           onClick={handleCopy}
           className="p-1.5 text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800 rounded-md transition-colors"
           aria-label="Copy file URL"
         >
           {copied ? <CheckIcon /> : <CopyIcon />}
         </button>
+        ): null}
+      
       </div>
       <div className="overflow-x-auto p-3">
         <pre className="text-xs">
