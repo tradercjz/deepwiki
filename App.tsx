@@ -19,6 +19,7 @@ import { COLORS } from './constants';
 import { FloatingKeywordsOverlay } from './components/FloatingKeywordsOverlay';
 import LogoImage from './assets/Image.svg'; 
 import { CosmicParticleSystem } from './components/CosmicParticleSystem';
+import { StarWish } from './components/StarWish';
 
 import { API_BASE_URL } from './config';
 
@@ -899,6 +900,9 @@ function App() {
           </div>
         </div>
       </header>
+
+      {!conversationId && <StarWish />}
+      
       <div className={`flex-grow pt-16 flex flex-col transition-all duration-300 ${isPinned ? 'pl-64' : 'pl-0'}`}>
       {!conversationId ? (
         // --- 主页布局 ---
@@ -916,7 +920,7 @@ function App() {
               onRemoveFile={handleRemoveFile}
               className="w-full"
             />
-            {/* <label className="flex items-center space-x-2 cursor-pointer text-sm text-gray-500 dark:text-gray-400">
+            <label className="flex items-center space-x-2 cursor-pointer text-sm text-gray-500 dark:text-gray-400">
                 <input
                   type="checkbox"
                   checked={isDebugMode}
@@ -924,7 +928,7 @@ function App() {
                   className="form-checkbox h-4 w-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600"
                 />
                 <span>Debug Mode</span>
-              </label> */}
+              </label>
               <div className="absolute bottom-2 left-0 right-0 text-center pb-2">
                 <a 
                   href="https://beian.miit.gov.cn/" 
