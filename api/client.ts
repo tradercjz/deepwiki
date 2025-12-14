@@ -101,3 +101,14 @@ export const historyApi = {
       method: 'DELETE'
     }),
 };
+
+export const cloudApi = {
+  // 获取状态
+  getStatus: () => request<{ status: 'running' | 'stopped' | 'creating' | 'error' }>('/cloud/workspace'),
+  
+  // 启动/创建
+  create: () => request<{ status: string, url: string }>('/cloud/workspace', { method: 'POST' }),
+  
+  // 销毁
+  delete: () => request<void>('/cloud/workspace', { method: 'DELETE' }),
+};

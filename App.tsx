@@ -22,6 +22,7 @@ import { CosmicParticleSystem } from './components/CosmicParticleSystem';
 import { StarWish } from './components/StarWish';
 
 import { API_BASE_URL } from './config';
+import { CodeWorkbench } from './components/CodeWorkbench';
 
 const UserIcon = () => (
   <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -35,6 +36,13 @@ const LogoutIcon = () => (
     <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
     <polyline points="16 17 21 12 16 7"></polyline>
     <line x1="21" y1="12" x2="9" y2="12"></line>
+  </svg>
+);
+
+const IconCode = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M16 18l6-6-6-6"></path>
+    <path d="M8 6L2 12l6 6"></path>
   </svg>
 );
 
@@ -188,6 +196,10 @@ function App() {
   const { user, logout } = useAuth();
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+
+  const [showWorkbench, setShowWorkbench] = useState(false);
+  const [isCodingMode, setIsCodingMode] = useState(false);
+
 
   const [history, setHistory] = useState<QAPair[]>([]);
   const [question, setQuestion] = useState('');
@@ -737,6 +749,16 @@ function App() {
     return null;
   }, [isLoading, streamingId]);
 
+  // 如果处于 Coding 模式，且用户已登录，直接渲染 Workbench，覆盖一切
+  if (isCodingMode  && user) {
+    return (
+      <CodeWorkbench 
+        user={user} 
+        onClose={() => setIsCodingMode(false)} 
+      />
+    );
+  }
+
   return (
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
       {/* <VantaBackground />
@@ -799,6 +821,29 @@ function App() {
             </div>
 
             <div className="flex items-center gap-4">
+    
+              {user && (
+                <button
+                  onClick={() => setIsCodingMode(true)}
+                  // ✨ 修改点：去掉了 bg-gradient, shadow 等，改为 text-gray-400 hover:bg-gray-800
+                    className={`flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed dark:bg-slate-800 dark:text-gray-300 dark:border-gray-700 dark:hover:bg-slate-700`}
+                      style={{ '--tw-ring-color': COLORS.themeBlue } as React.CSSProperties}
+                >
+                  {/* 图标颜色也随文字变化 */}
+                  <svg 
+                    className="w-4 h-4" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                  </svg>
+                  <span>Coding</span>
+                </button>
+              )}
+
+              {/* 分割线 (可选，增加层次感) */}
+              {user && <div className="w-px h-4 bg-gray-700 mx-1"></div>}
 
               <button
                 onClick={handleNewChat}
