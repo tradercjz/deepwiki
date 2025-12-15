@@ -89,7 +89,7 @@ export const CodeWorkbench: React.FC<Props> = ({ user, onClose }) => {
         <div className="flex items-center gap-4">
           <div className="flex items-center text-gray-300 text-xs">
             <span className="font-bold text-blue-400 mr-2">DolphinDB</span> 
-            Cloud Workbench - {usernameSlug}
+            Cloud Workbench (注意:测试阶段，云环境数据会丢失)- {usernameSlug}
           </div>
           
           {/* 切换侧边栏按钮 */}
