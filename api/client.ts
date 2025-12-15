@@ -112,3 +112,8 @@ export const cloudApi = {
   // 销毁
   delete: () => request<void>('/cloud/workspace', { method: 'DELETE' }),
 };
+
+export const agentApi = {
+  // Agent Chat 的 Endpoint URL
+  chatEndpoint: `${API_BASE_URL}/api/v1/agent/chat`,
+};
