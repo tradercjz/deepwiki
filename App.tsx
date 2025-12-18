@@ -20,6 +20,7 @@ import { FloatingKeywordsOverlay } from './components/FloatingKeywordsOverlay';
 import LogoImage from './assets/Image.svg'; 
 import { CosmicParticleSystem } from './components/CosmicParticleSystem';
 import { StarWish } from './components/StarWish';
+import { WinterBackground } from './components/Winter/WinterBackground';
 
 import { API_BASE_URL } from './config';
 import { CodeWorkbench } from './components/CodeWorkbench';
@@ -763,7 +764,9 @@ function App() {
     <div className="h-screen flex flex-col font-sans text-gray-800 dark:text-gray-200">
       {/* <VantaBackground />
       <FloatingKeywordsOverlay /> */}
-      <CosmicParticleSystem isSlow={isChatting}/>
+      {/* <CosmicParticleSystem isSlow={isChatting}/> */}
+
+      <WinterBackground isChatting={isChatting} />
       <AuthModal 
         isOpen={isAuthModalOpen} 
         onClose={() => setAuthModalOpen(false)} 
