@@ -1,41 +1,80 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { COLORS } from '../constants'; // 复用你的颜色配置
+import { COLORS } from '../constants';
+import { authApi } from '../api/client'; // 确保你的 client 有新定义的接口
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-type AuthView = 'login' | 'register' | 'verify';
+type AuthView = 'login' | 'register';
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { login, register, verify } = useAuth();
+  const { login, register } = useAuth();
   const [view, setView] = useState<AuthView>('login');
   
   // 表单状态
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [code, setCode] = useState('');
-  const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [countdown, setCountdown] = useState(0);
+
+  const [formData, setFormData] = useState({
+    phoneNumber: '',
+    password: '',
+    confirmPassword: '',
+    smsVerifyCode: '',
+    username: '', // 真实姓名
+    nickname: '',
+    email: '',
+    company: '',
+    position: '',
+    region: '',
+  });
+
+  // 短信倒计时逻辑
+  useEffect(() => {
+    if (countdown > 0) {
+      const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [countdown]);
 
   if (!isOpen) return null;
 
   const reset = () => {
     setError('');
     setLoading(false);
+    setFormData({
+      phoneNumber: '', password: '', confirmPassword: '', smsVerifyCode: '',
+      username: '', nickname: '', email: '', company: '', position: '', region: '',
+    });
+  };
+
+  // 发送短信验证码
+  const handleSendSms = async () => {
+    if (!/^1[3-9]\d{9}$/.test(formData.phoneNumber)) {
+      setError("请输入正确的手机号");
+      return;
+    }
+    try {
+      await authApi.sendSms(formData.phoneNumber);
+      setCountdown(60);
+      setError('');
+    } catch (err: any) {
+      setError(err.message || '发送失败');
+    }
   };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    reset();
+    setError('');
     setLoading(true);
     try {
-      await login(email, password);
-      onClose(); // 登录成功关闭弹窗
+      await login(formData.phoneNumber, formData.password);
+      onClose();
     } catch (err: any) {
-      setError(err.message || 'Login failed');
+      setError(err.message || '登录失败');
     } finally {
       setLoading(false);
     }
@@ -43,30 +82,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    reset();
-    setLoading(true);
-    try {
-      await register(email, password);
-      // 注册成功，跳转验证，保留 email 和 password 用于后续自动登录
-      setView('verify');
-    } catch (err: any) {
-      setError(err.message || 'Registration failed');
-    } finally {
-      setLoading(false);
+    if (formData.password !== formData.confirmPassword) {
+        setError("两次输入的密码不一致");
+        return;
     }
-  };
-
-  const handleVerify = async (e: React.FormEvent) => {
-    e.preventDefault();
-    reset();
+    setError('');
     setLoading(true);
     try {
-      await verify(email, code);
-      // 验证成功，自动登录
-      await login(email, password);
-      onClose();
+      // 调用 context 中的 register，传入完整对象
+      await register(formData as any); 
+      alert("注册成功，请登录");
+      setView('login');
     } catch (err: any) {
-      setError(err.message || 'Verification failed');
+      setError(err.message || '注册失败');
     } finally {
       setLoading(false);
     }
@@ -76,7 +104,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     overlay: {
       position: 'fixed' as 'fixed',
       top: 0, left: 0, right: 0, bottom: 0,
-      // 背景遮罩稍微深一点，为了突出白色的弹窗
       backgroundColor: 'rgba(0, 0, 0, 0.5)', 
       backdropFilter: 'blur(4px)',
       display: 'flex',
@@ -85,83 +112,87 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       zIndex: 1000,
     },
     modal: {
-      // ✨ [核心] 背景改为纯白
       backgroundColor: '#ffffff',
-      
-      // 加上柔和的阴影，让卡片有浮起感
       boxShadow: '0 10px 25px rgba(0, 0, 0, 0.2)',
-      
-      padding: '2.5rem 2rem', // 增加一点内边距，呼吸感更强
-      borderRadius: '16px',   // 圆角加大
-      width: '380px',
-      maxWidth: '90%',
-      
-      // ✨ [核心] 文字改为深色
+      padding: '2rem',
+      borderRadius: '16px',
+      width: view === 'login' ? '380px' : '450px', // 注册字段多，稍微调宽一点
+      maxHeight: '90vh',
+      overflowY: 'auto' as 'auto',
       color: '#333333',
       position: 'relative' as 'relative',
+      transition: 'all 0.3s ease',
     },
     title: {
-      fontSize: '1.8rem',
-      marginBottom: '1.5rem',
+      fontSize: '1.6rem',
+      marginBottom: '1.2rem',
       textAlign: 'center' as 'center',
-      
       color: 'black',
-      
       fontWeight: '700',
+    },
+    label: {
+      display: 'block',
+      fontSize: '0.85rem',
+      color: '#666',
+      marginBottom: '4px',
+      marginLeft: '2px',
     },
     input: {
       width: '100%',
-      padding: '14px',
-      marginBottom: '1rem',
-      
-      // ✨ [核心] 输入框背景也是白色
+      padding: '12px',
+      marginBottom: '0.8rem',
       backgroundColor: '#ffffff',
-      
-      // 加上浅灰色边框来区分输入框和背景
-      border: '1px solid #e5e7eb', // Tailwind gray-200
-      
+      border: '1px solid #e5e7eb',
       borderRadius: '8px',
-      
-      // 输入文字颜色为黑色
       color: '#1f2937', 
       outline: 'none',
-      fontSize: '1rem',
-      transition: 'all 0.2s',
-      // 给输入框加一点点内阴影，增加质感
+      fontSize: '0.95rem',
       boxShadow: 'inset 0 1px 2px rgba(0,0,0,0.05)',
+    },
+    smsContainer: {
+      display: 'flex',
+      gap: '8px',
+      marginBottom: '0.8rem',
+    },
+    smsButton: {
+      padding: '0 15px',
+      height: '45px',
+      whiteSpace: 'nowrap' as 'nowrap',
+      backgroundColor: countdown > 0 ? '#f3f4f6' : '#f0f9ff',
+      border: '1px solid #bae6fd',
+      borderRadius: '8px',
+      color: countdown > 0 ? '#999' : COLORS.themeBlue,
+      cursor: countdown > 0 ? 'default' : 'pointer',
+      fontSize: '0.85rem',
+      fontWeight: '600',
     },
     button: {
       width: '100%',
       padding: '14px',
-      
-      // ✨ 按钮背景使用湖蓝色
-      backgroundColor:  'black',
-      
-      color: '#ffffff', // 白字
+      backgroundColor: 'black',
+      color: '#ffffff',
       border: 'none',
       borderRadius: '8px',
       fontWeight: '600',
       fontSize: '1rem',
       cursor: 'pointer',
-      marginTop: '1rem',
-      transition: 'transform 0.1s, filter 0.2s',
-      boxShadow: `0 4px 14px ${COLORS.themeBlue}40`, // 按钮也带一点蓝色光晕
+      marginTop: '0.5rem',
+      boxShadow: `0 4px 14px ${COLORS.themeBlue}40`,
     },
     link: {
-      color: '#6b7280', // 灰色文字 (Gray-500)
-      fontSize: '0.9rem',
+      color: '#6b7280',
+      fontSize: '0.85rem',
       textAlign: 'center' as 'center',
-      marginTop: '1.5rem',
+      marginTop: '1.2rem',
       cursor: 'pointer',
-      transition: 'color 0.2s',
     },
     error: {
-      color: '#ef4444', // 鲜艳的红色
+      color: '#ef4444',
       marginBottom: '1rem',
-      fontSize: '0.9rem',
+      fontSize: '0.85rem',
       textAlign: 'center' as 'center',
-      backgroundColor: '#fef2f2', // 极淡的红色背景
-      padding: '10px',
+      backgroundColor: '#fef2f2',
+      padding: '8px',
       borderRadius: '6px',
       border: '1px solid #fee2e2',
     },
@@ -170,9 +201,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         top: '20px',
         right: '20px',
         cursor: 'pointer',
-        fontSize: '1.5rem',
-        color: '#9ca3af', // 浅灰色关闭按钮
-        transition: 'color 0.2s',
+        fontSize: '1.2rem',
+        color: '#9ca3af',
+    },
+    row: {
+        display: 'flex',
+        gap: '10px'
     }
   };
 
@@ -183,83 +217,162 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         
         {view === 'login' && (
           <form onSubmit={handleLogin}>
-            <h2 style={styles.title}>Login</h2>
+            <h2 style={styles.title}>Official Login</h2>
             {error && <div style={styles.error}>{error}</div>}
+            
+            <label style={styles.label}>Phone Number</label>
             <input 
               style={styles.input} 
-              type="email" 
-              placeholder="Email" 
-              value={email} 
-              onChange={e => setEmail(e.target.value)} 
+              type="tel" 
+              placeholder="138xxxx0000" 
+              value={formData.phoneNumber} 
+              onChange={e => setFormData({...formData, phoneNumber: e.target.value})} 
               required 
             />
+            
+            <label style={styles.label}>Password</label>
             <input 
               style={styles.input} 
               type="password" 
               placeholder="Password" 
-              value={password} 
-              onChange={e => setPassword(e.target.value)} 
+              value={formData.password} 
+              onChange={e => setFormData({...formData, password: e.target.value})} 
               required 
             />
+            
             <button style={styles.button} type="submit" disabled={loading}>
-              {loading ? 'Processing...' : 'LOGIN'}
+              {loading ? 'Logging in...' : 'LOGIN'}
             </button>
             <div style={styles.link} onClick={() => { reset(); setView('register'); }}>
-              No account? Register
+              No account? Register Official Account
             </div>
           </form>
         )}
 
         {view === 'register' && (
           <form onSubmit={handleRegister}>
-            <h2 style={{...styles.title}}>New User</h2>
+            <h2 style={styles.title}>Register</h2>
             {error && <div style={styles.error}>{error}</div>}
+            
+            <label style={styles.label}>Phone Number</label>
+            <input 
+              style={styles.input} 
+              type="tel" 
+              placeholder="Phone Number" 
+              value={formData.phoneNumber} 
+              onChange={e => setFormData({...formData, phoneNumber: e.target.value})} 
+              required 
+            />
+
+            <label style={styles.label}>Verification Code</label>
+            <div style={styles.smsContainer}>
+                <input 
+                    style={{...styles.input, marginBottom: 0}} 
+                    type="text" 
+                    placeholder="6-digit code" 
+                    value={formData.smsVerifyCode} 
+                    onChange={e => setFormData({...formData, smsVerifyCode: e.target.value})} 
+                    required 
+                />
+                <button 
+                    type="button" 
+                    style={styles.smsButton} 
+                    onClick={handleSendSms}
+                    disabled={countdown > 0}
+                >
+                    {countdown > 0 ? `${countdown}s` : 'Get Code'}
+                </button>
+            </div>
+
+            <div style={styles.row}>
+                <div style={{flex: 1}}>
+                    <label style={styles.label}>Real Name</label>
+                    <input 
+                        style={styles.input} 
+                        type="text" 
+                        value={formData.username} 
+                        onChange={e => setFormData({...formData, username: e.target.value})} 
+                        required 
+                    />
+                </div>
+                <div style={{flex: 1}}>
+                    <label style={styles.label}>Nickname</label>
+                    <input 
+                        style={styles.input} 
+                        type="text" 
+                        value={formData.nickname} 
+                        onChange={e => setFormData({...formData, nickname: e.target.value})} 
+                    />
+                </div>
+            </div>
+
+            <label style={styles.label}>Email</label>
             <input 
               style={styles.input} 
               type="email" 
-              placeholder="Email" 
-              value={email} 
-              onChange={e => setEmail(e.target.value)} 
+              value={formData.email} 
+              onChange={e => setFormData({...formData, email: e.target.value})} 
               required 
             />
+
+            <div style={styles.row}>
+                <div style={{flex: 1}}>
+                    <label style={styles.label}>Company</label>
+                    <input 
+                        style={styles.input} 
+                        type="text" 
+                        value={formData.company} 
+                        onChange={e => setFormData({...formData, company: e.target.value})} 
+                        required 
+                    />
+                </div>
+                <div style={{flex: 1}}>
+                    <label style={styles.label}>Position</label>
+                    <input 
+                        style={styles.input} 
+                        type="text" 
+                        value={formData.position} 
+                        onChange={e => setFormData({...formData, position: e.target.value})} 
+                        required 
+                    />
+                </div>
+            </div>
+
+            <label style={styles.label}>Region</label>
+            <input 
+              style={styles.input} 
+              type="text" 
+              placeholder="e.g. Shanghai"
+              value={formData.region} 
+              onChange={e => setFormData({...formData, region: e.target.value})} 
+              required 
+            />
+
+            <label style={styles.label}>Password</label>
             <input 
               style={styles.input} 
               type="password" 
-              placeholder="Password (Min 8 chars)" 
-              value={password} 
-              onChange={e => setPassword(e.target.value)} 
+              placeholder="8-16 chars, letters & numbers" 
+              value={formData.password} 
+              onChange={e => setFormData({...formData, password: e.target.value})} 
               required 
             />
-            <button style={{...styles.button, color: '#fff'}} type="submit" disabled={loading}>
-              {loading ? 'Processing...' : 'REGISTER'}
+
+            <label style={styles.label}>Confirm Password</label>
+            <input 
+              style={styles.input} 
+              type="password" 
+              value={formData.confirmPassword} 
+              onChange={e => setFormData({...formData, confirmPassword: e.target.value})} 
+              required 
+            />
+
+            <button style={styles.button} type="submit" disabled={loading}>
+              {loading ? 'Creating Account...' : 'REGISTER'}
             </button>
+            
             <div style={styles.link} onClick={() => { reset(); setView('login'); }}>
               Have account? Login
-            </div>
-          </form>
-        )}
-
-        {view === 'verify' && (
-          <form onSubmit={handleVerify}>
-            <h2 style={styles.title}>Verify Email</h2>
-            <p style={{marginBottom: '1rem', color: '#ccc', fontSize: '0.9rem', textAlign: 'center'}}>
-              Code sent to {email}
-            </p>
-            {error && <div style={styles.error}>{error}</div>}
-            <input 
-              style={{...styles.input, textAlign: 'center', letterSpacing: '5px', fontSize: '1.2rem'}} 
-              type="text" 
-              placeholder="000000" 
-              value={code} 
-              onChange={e => setCode(e.target.value)} 
-              maxLength={6}
-              required 
-            />
-            <button style={styles.button} type="submit" disabled={loading}>
-              {loading ? 'Verifying...' : 'ACTIVATE & LOGIN'}
-            </button>
-            <div style={styles.link} onClick={() => setView('register')}>
-              Back
             </div>
           </form>
         )}

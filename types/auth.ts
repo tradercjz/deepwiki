@@ -1,8 +1,33 @@
 // src/types/auth.ts
 
-export interface User {
-  email: string;
+export interface UserInfoVO {
+  userId: string;
+  username: string;
+  nickname?: string;
+  companyName?: string;
+  position?: string;
+  email?: string;
+  avatar?: string;
+  emailNotificationPreference: number;
+  phoneNumber: string;
+  region?: string;
+}
+
+export interface UserReturnInfoVO {
   token: string;
+  user: UserInfoVO;
+}
+
+export interface APIResult<T> {
+  code: number;
+  message: string;
+  data: T;
+}
+
+export interface User {
+  phoneNumber: string;
+  token: string;
+  info: UserInfoVO;
 }
 
 export interface LoginResponse {

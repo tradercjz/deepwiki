@@ -908,7 +908,7 @@ function App() {
                   >
                     {/* 显示邮箱前缀 */}
                     <span className="text-sm font-medium hidden sm:block">
-                      {user.email.split('@')[0]}
+                      {user.info?.nickname || user.info?.username || user.phoneNumber}
                     </span>
                     
                     {/* 头像圆圈 */}

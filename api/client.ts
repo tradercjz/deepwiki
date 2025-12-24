@@ -1,5 +1,5 @@
 // src/api/client.ts
-import { LoginResponse, ConversationSummary, ClaimResponse } from '../types/auth';
+import { LoginResponse, ConversationSummary, ClaimResponse, UserReturnInfoVO } from '../types/auth';
 import { API_BASE_URL } from '../config';
 
 // 通用请求封装
@@ -46,39 +46,28 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 export const authApi = {
+  // 发送短信
+  sendSms: (phoneNumber: string) => 
+    request<boolean>(`/auth/verification-codes/sms?phoneNumber=${phoneNumber}`, { method: 'POST' }),
+
+  // 检查昵称
+  checkNickname: (nickname: string) =>
+    request<boolean>(`/auth/users/nickname/availability?nickname=${nickname}`, { method: 'GET' }),
+
   // 注册
-  register: (email: string, password: string) => 
-    request('/auth/register', {
+  register: (data: any) => 
+    request<boolean>('/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ ...data, source: 1 }) // source: 1 代表本系统
     }),
 
-  // 验证验证码
-  verify: (email: string, code: string) => 
-    request('/auth/verify', {
+  // 登录
+  login: async (phoneNumber: string, password: string): Promise<UserReturnInfoVO> => {
+    // 注意：后端现在接收的是 JSON 格式的 UserLoginDTO
+    return request<UserReturnInfoVO>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, code })
-    }),
-
-  // 登录 (OAuth2 Password Flow)
-  login: async (email: string, password: string): Promise<LoginResponse> => {
-    const params = new URLSearchParams();
-    params.append('username', email); // 后端 FastAPI OAuth2 默认要求 username 字段
-    params.append('password', password);
-
-    const response = await fetch(`${API_BASE_URL}/api/v1/auth/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params,
+      body: JSON.stringify({ phoneNumber, password })
     });
-
-    if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        throw new Error(err.detail || 'Login failed');
-    }
-    return response.json();
   },
 };
 
