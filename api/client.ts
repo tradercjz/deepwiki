@@ -6,8 +6,13 @@ import { API_BASE_URL } from '../config';
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('auth_token');
   const headers = new Headers(options.headers);
+
+  if (endpoint.includes('/history/') && (!token || token === "undefined")) {
+      // 模拟一个 401 错误，不打扰后端
+      throw new Error("Unauthorized: No token found");
+  }
   
-  if (token) {
+  if (token && token !== "undefined" && token !== "null") {
     headers.set('Authorization', `Bearer ${token}`);
   }
   
@@ -37,12 +42,21 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     throw new Error(errorMessage);
   }
 
+  const result = await response.json() as { code: number; message: string; data: T };
+
   // 如果状态码是 204，直接返回空对象，不要尝试解析 JSON
   if (response.status === 204) {
     return {} as T;
   }
 
-  return response.json();
+  if (result.code && result.code !== 0) { //这里历史的接口不太规范，直接返回了列表，暂时不处理了吧
+    console.log("reuslt:", result);
+    // 这样 Error 的消息内容就是 "密码不正确"
+    throw new Error(result.message || '请求失败');
+  }
+
+
+  return result;
 }
 
 export const authApi = {

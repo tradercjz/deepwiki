@@ -101,8 +101,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = () => {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user_phone');
+    localStorage.removeItem('user_info');
     setUser(null);
     window.dispatchEvent(new Event('history-updated'));
+    window.location.href = '/'; 
   };
 
   return (

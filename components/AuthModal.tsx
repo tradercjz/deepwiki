@@ -74,7 +74,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       await login(formData.phoneNumber, formData.password);
       onClose();
     } catch (err: any) {
-      setError(err.message || '登录失败');
+      setError(err.message || '登录失败，请检查网络');
     } finally {
       setLoading(false);
     }
