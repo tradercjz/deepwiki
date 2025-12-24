@@ -154,7 +154,7 @@ const CharacterWrapper: React.FC<{
         color="#ffffff"
         anchorX="center"
         anchorY="middle"
-        font="https://cdn.jsdelivr.net/gh/googlefonts/montserrat@master/fonts/ttf/Montserrat-Bold.ttf"
+        font="/fonts/Montserrat-Bold.ttf"
       >
         {char}
         <meshStandardMaterial color="#ffffff" emissive={charColor} emissiveIntensity={1.5} />
