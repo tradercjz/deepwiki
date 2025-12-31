@@ -646,9 +646,10 @@ const HtmlOverlay: React.FC<{ activeWord: string | null }> = ({ activeWord }) =>
 
 interface CodeRiverProps {
   onMatchFound?: (word: string) => void;
+  onMatchComplete?: () => void; 
 }
 
-const CodeRiver: React.FC<CodeRiverProps> = ({ onMatchFound }) => {
+const CodeRiver: React.FC<CodeRiverProps> = ({ onMatchFound, onMatchComplete }) => {
   const baseSpeeds = useMemo(() => [120, 160, 110, 190, 140, 130, 170].slice(0, LANES_COUNT), []);
 
   const { lanesParams, targetWords } = useMemo(() => {
@@ -710,6 +711,10 @@ const CodeRiver: React.FC<CodeRiverProps> = ({ onMatchFound }) => {
     matcher.isPaused = false;
     highlightTimer.current = 0;
     postReorderTimer.current = 0;
+
+    if (onMatchComplete) {
+      onMatchComplete();
+    }
   };
 
   useFrame((state, delta) => {

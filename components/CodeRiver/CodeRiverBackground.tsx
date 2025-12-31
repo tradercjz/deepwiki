@@ -115,14 +115,13 @@ export const CodeRiverBackground: React.FC<Props> = ({ isChatting }) => {
       text: `TARGET DETECTED: "${word}"`,
       isFound: true
     });
+  };
 
-    // 2. 5秒后恢复为“寻找” (配合 3D 背景的动画时长)
-    setTimeout(() => {
-      setHudState({
-        text: "Finding dolphin...",
-        isFound: false
-      });
-    }, 5000); // 5秒后重置
+  const handleMatchComplete = () => {
+    setHudState({
+      text: "Finding dolphin...",
+      isFound: false
+    });
   };
 
   return (
@@ -145,7 +144,10 @@ export const CodeRiverBackground: React.FC<Props> = ({ isChatting }) => {
           <Lighting colorTemp={0.3} />
 
           {/* ✨ 传入回调函数 */}
-          <CodeRiver onMatchFound={handleMatchFound} />
+           <CodeRiver 
+            onMatchFound={handleMatchFound} 
+            onMatchComplete={handleMatchComplete} 
+          />
 
           <Stars radius={1500} depth={500} count={5000} factor={4} saturation={0.5} fade speed={1} />
           <Environment preset="night" />
