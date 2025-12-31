@@ -184,7 +184,7 @@ export const CodeRiverBackground: React.FC<Props> = ({ isChatting }) => {
           />
 
           <Stars radius={1500} depth={500} count={5000} factor={4} saturation={0.5} fade speed={1} />
-          <Environment preset="night" />
+          <Environment files="https://cdn.dolphindb.cn/textures/dikhololo_night_1k.hdr" />
           <EffectComposer multisampling={4}>
              {/* 聊天时稍微降低泛光强度，减少刺眼感 */}
             <Bloom 

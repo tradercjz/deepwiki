@@ -15,7 +15,7 @@ const WORD_SPACING = 600;
 const Y_STEP = 160;
 
 // Standard Monospace Font for perfect alignment
-const CODE_FONT = '/fonts/JetBrainsMono-Regular.ttf';
+const CODE_FONT = 'https://cdn.dolphindb.cn/fonts/JetBrainsMono-Regular.ttf';
 const FONT_SIZE = 46;
 const CHAR_WIDTH = FONT_SIZE * 0.6; // 27.6px for standard 0.6 aspect ratio
 
