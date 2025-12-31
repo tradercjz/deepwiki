@@ -644,7 +644,11 @@ const HtmlOverlay: React.FC<{ activeWord: string | null }> = ({ activeWord }) =>
   );
 }
 
-const CodeRiver: React.FC = () => {
+interface CodeRiverProps {
+  onMatchFound?: (word: string) => void;
+}
+
+const CodeRiver: React.FC<CodeRiverProps> = ({ onMatchFound }) => {
   const baseSpeeds = useMemo(() => [120, 160, 110, 190, 140, 130, 170].slice(0, LANES_COUNT), []);
 
   const { lanesParams, targetWords } = useMemo(() => {
@@ -809,6 +813,10 @@ const CodeRiver: React.FC = () => {
           matcher.startLaneReorder(); // Start lane reorder animation
           setActivePath(result.path);
           setActiveTargetName(result.target);
+
+          if (onMatchFound) {
+            onMatchFound(result.target); // 把找到的词传出去
+          }
         }
       }
     }

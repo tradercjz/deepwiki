@@ -1,4 +1,4 @@
-import React, { Suspense, useMemo } from 'react';
+import React, { Suspense, useMemo, useState, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { PerspectiveCamera, Stars, Environment, Stats } from '@react-three/drei';
 import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
@@ -11,6 +11,58 @@ const T = {
   ambientLight: 'ambientLight' as any,
   pointLight: 'pointLight' as any,
   hemisphereLight: 'hemisphereLight' as any
+};
+
+const SystemHUD = ({ statusText, isFound }: { statusText: string, isFound: boolean }) => {
+  const [displayFilter, setDisplayFilter] = useState('');
+  
+  // 当传入的 statusText 变化时，重置打字机
+  useEffect(() => {
+    let i = 0;
+    setDisplayFilter(''); // 先清空
+    
+    const timer = setInterval(() => {
+      // 每次截取 +1 个字符
+      setDisplayFilter(statusText.slice(0, i + 1));
+      i++;
+      if (i >= statusText.length) clearInterval(timer);
+    }, 50); // 打字速度 50ms
+
+    return () => clearInterval(timer);
+  }, [statusText]);
+
+  return (
+    <div className="absolute top-24 left-6 z-10 pointer-events-none font-mono select-none">
+      <div className="flex flex-col gap-1">
+        
+        <div className="flex items-center gap-3">
+          {/* 状态灯：没找到时呼吸(ping)，找到时常亮或变色 */}
+          <div className="relative flex h-2 w-2">
+            {!isFound && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>}
+            <span className={`relative inline-flex rounded-full h-2 w-2 ${isFound ? 'bg-yellow-400 shadow-[0_0_10px_#facc15]' : 'bg-cyan-500'}`}></span>
+          </div>
+          
+          {/* 文字内容 */}
+          <span className={`text-xs sm:text-sm tracking-widest font-bold transition-colors duration-300 ${
+            isFound 
+              ? 'text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]' // 找到时变金黄色
+              : 'text-cyan-400/80 drop-shadow-[0_0_5px_rgba(34,211,238,0.5)]' // 寻找时青色
+          }`}>
+            {`> ${displayFilter}`}
+            <span className="animate-pulse">_</span>
+          </span>
+        </div>
+
+        {/* 只有在寻找时才显示下面的伪数据，找到时隐藏以突出重点 */}
+        {!isFound && (
+          <div className="pl-5 text-[10px] text-cyan-600/50 flex flex-col gap-0.5">
+             <span className="opacity-0 animate-fade-in-up" style={{animationDelay: '0.5s'}}>SCANNING_STREAM...</span>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
 };
 
 // 场景灯光组件 (源自原项目的 Scene.tsx)
@@ -49,10 +101,38 @@ interface Props {
 }
 
 export const CodeRiverBackground: React.FC<Props> = ({ isChatting }) => {
+  
+  // ✨ 状态管理
+  const [hudState, setHudState] = useState({
+    text: "Finding dolphin...",
+    isFound: false
+  });
+
+  // 处理 3D 背景传来的“找到目标”事件
+  const handleMatchFound = (word: string) => {
+    // 1. 改变状态为“找到”
+    setHudState({
+      text: `TARGET DETECTED: "${word}"`,
+      isFound: true
+    });
+
+    // 2. 5秒后恢复为“寻找” (配合 3D 背景的动画时长)
+    setTimeout(() => {
+      setHudState({
+        text: "Finding dolphin...",
+        isFound: false
+      });
+    }, 5000); // 5秒后重置
+  };
+
   return (
     <div className="fixed inset-0 -z-10 bg-black">
+      
+      {/* 将状态传入 HUD */}
+      <SystemHUD statusText={hudState.text} isFound={hudState.isFound} />
+
       <Canvas
-        dpr={[1, 2]} // 保持高性能设置
+        dpr={[1, 2]} 
         gl={{
           antialias: true,
           stencil: false,
@@ -60,33 +140,17 @@ export const CodeRiverBackground: React.FC<Props> = ({ isChatting }) => {
           powerPreference: "high-performance"
         }}
       >
-        {/* 开发模式下可以开启 Stats */}
-        {/* <Stats /> */}
-        
-        <PerspectiveCamera
-          makeDefault
-          // 如果在聊天界面，相机稍微拉远或平移，避免文字干扰 UI？
-          // 这里保持原设定的 1400
-          position={[0, 0, 1400]} 
-          fov={60}
-          far={10000}
-        />
-
+        <PerspectiveCamera makeDefault position={[0, 0, 1400]} fov={60} far={10000} />
         <Suspense fallback={null}>
           <Lighting colorTemp={0.3} />
 
-          <CodeRiver />
+          {/* ✨ 传入回调函数 */}
+          <CodeRiver onMatchFound={handleMatchFound} />
 
           <Stars radius={1500} depth={500} count={5000} factor={4} saturation={0.5} fade speed={1} />
           <Environment preset="night" />
-
           <EffectComposer multisampling={4}>
-            <Bloom
-              luminanceThreshold={1.0}
-              mipmapBlur
-              intensity={5.0} // 保持原有的强发光风格
-              radius={0.5}
-            />
+            <Bloom luminanceThreshold={1.0} mipmapBlur intensity={5.0} radius={0.5} />
             <Vignette eskil={false} offset={0.1} darkness={1.1} />
           </EffectComposer>
         </Suspense>
