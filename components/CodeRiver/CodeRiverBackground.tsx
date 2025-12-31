@@ -65,35 +65,42 @@ const SystemHUD = ({ statusText, isFound }: { statusText: string, isFound: boole
   );
 };
 
-// 场景灯光组件 (源自原项目的 Scene.tsx)
-const Lighting: React.FC<{ colorTemp: number }> = ({ colorTemp }) => {
-  const warmColor = new THREE.Color('#ffcc33');
-  const redColor = new THREE.Color('#ff3300');
+// 场景灯光组件
+const Lighting: React.FC<{ colorTemp: number; isChatting: boolean }> = ({ colorTemp, isChatting }) => {
+    const warmColor = new THREE.Color('#ffcc33');
+    const redColor = new THREE.Color('#ff3300');
+    
+    const currentColor = useMemo(() => {
+      return warmColor.clone().lerp(redColor, colorTemp);
+    }, [colorTemp]);
   
-  const currentColor = useMemo(() => {
-    return warmColor.clone().lerp(redColor, colorTemp);
-  }, [colorTemp]);
+    // 定义不同状态下的强度
+    const mainIntensity = isChatting ? 0.2 : 2.0; // 主光：从 2.0 降到 0.2
+    const fillIntensity = isChatting ? 0.1 : 1.0; // 补光：从 1.0 降到 0.1
+    const ambientIntensity = isChatting ? 0.05 : 0.2; // 环境光：变得极暗
 
-  return (
-    <>
-      <T.color attach="background" args={['#020205']} />
-      <T.fog attach="fog" args={['#020205', 500, 5000]} />
-      <T.ambientLight intensity={0.2} />
-      <T.pointLight 
-        position={[0, 200, -300]} 
-        intensity={2} 
-        distance={1500} 
-        color={currentColor} 
-      />
-      <T.pointLight 
-        position={[-200, -100, -200]} 
-        intensity={1} 
-        distance={1000} 
-        color="#4433ff" 
-      />
-      <T.hemisphereLight intensity={0.1} color="#ffffff" groundColor="#000000" />
-    </>
-  );
+    return (
+      <>
+        <T.color attach="background" args={['#020205']} />
+        <T.fog attach="fog" args={['#020205', 500, 5000]} />
+        
+        <T.ambientLight intensity={ambientIntensity} />
+        
+        <T.pointLight 
+            position={[0, 200, -300]} 
+            intensity={mainIntensity} 
+            distance={1500} 
+            color={currentColor} 
+        />
+        <T.pointLight 
+            position={[-200, -100, -200]} 
+            intensity={fillIntensity} 
+            distance={1000} 
+            color="#4433ff" 
+        />
+        <T.hemisphereLight intensity={isChatting ? 0.02 : 0.1} color="#ffffff" groundColor="#000000" />
+      </>
+    );
 };
 
 interface Props {
@@ -110,6 +117,7 @@ export const CodeRiverBackground: React.FC<Props> = ({ isChatting }) => {
 
   // 处理 3D 背景传来的“找到目标”事件
   const handleMatchFound = (word: string) => {
+    if (isChatting) return;
     // 1. 改变状态为“找到”
     setHudState({
       text: `TARGET DETECTED: "${word}"`,
@@ -118,11 +126,29 @@ export const CodeRiverBackground: React.FC<Props> = ({ isChatting }) => {
   };
 
   const handleMatchComplete = () => {
-    setHudState({
-      text: "Finding dolphin...",
-      isFound: false
-    });
+    if (!isChatting) {
+      setHudState({
+        text: "Finding dolphin...",
+        isFound: false
+      });
+    }
   };
+
+  useEffect(() => {
+    if (isChatting) {
+      // 进入聊天模式：停止寻找，显示待机状态
+      setHudState({
+        text: "SYSTEM: ONLINE", // 或者 "DATA STREAM: ACTIVE"
+        isFound: false
+      });
+    } else {
+      // 回到首页：恢复寻找状态
+      setHudState({
+        text: "Finding dolphin...",
+        isFound: false
+      });
+    }
+  }, [isChatting]);
 
   return (
     <div className="fixed inset-0 -z-10 bg-black">
@@ -139,20 +165,35 @@ export const CodeRiverBackground: React.FC<Props> = ({ isChatting }) => {
           powerPreference: "high-performance"
         }}
       >
-        <PerspectiveCamera makeDefault position={[0, 0, 1400]} fov={60} far={10000} />
+         {/* 聊天时相机稍微推远一点点，增加空间感 */}
+        <PerspectiveCamera 
+          makeDefault 
+          position={[0, 0, isChatting ? 1600 : 1400]} 
+          fov={60} 
+          far={10000} 
+        />
         <Suspense fallback={null}>
-          <Lighting colorTemp={0.3} />
+          <Lighting colorTemp={isChatting ? 0.1 : 0.3} isChatting={isChatting} />
+
 
           {/* ✨ 传入回调函数 */}
-           <CodeRiver 
+        <CodeRiver 
             onMatchFound={handleMatchFound} 
-            onMatchComplete={handleMatchComplete} 
+            onMatchComplete={handleMatchComplete}
+            isChatting={isChatting} 
           />
 
           <Stars radius={1500} depth={500} count={5000} factor={4} saturation={0.5} fade speed={1} />
           <Environment preset="night" />
           <EffectComposer multisampling={4}>
-            <Bloom luminanceThreshold={1.0} mipmapBlur intensity={5.0} radius={0.5} />
+             {/* 聊天时稍微降低泛光强度，减少刺眼感 */}
+            <Bloom 
+                luminanceThreshold={1.0} 
+                mipmapBlur 
+                intensity={isChatting ? 0.5 : 5.0} // 从 5.0 降到 0.5，几乎不发光
+                radius={0.5} 
+            />
+
             <Vignette eskil={false} offset={0.1} darkness={1.1} />
           </EffectComposer>
         </Suspense>

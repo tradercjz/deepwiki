@@ -352,6 +352,7 @@ interface FunctionNodeProps {
   isFlashing?: boolean; // Flash effect after swap complete
   flashIntensityRef?: React.MutableRefObject<number>; // Ref based update
   dimmingLevelRef?: React.MutableRefObject<number>; // Ref based update
+  isChatting: boolean;
 }
 
 
@@ -368,7 +369,8 @@ const FunctionNode = React.memo(({
   convergenceRef,
   isFlashing,
   flashIntensityRef,
-  dimmingLevelRef
+  dimmingLevelRef,
+  isChatting
 }: FunctionNodeProps) => {
   const ref = useRef<THREE.Group>(null!);
   const baseTextRef = useRef<any>(null!);
@@ -402,11 +404,23 @@ const FunctionNode = React.memo(({
 
     // 1. Update Base Text Opacity
     if (baseTextRef.current) {
-      // Normal: 0.5, Unrelated: 0.1, MatchedBase: 0.2
-      // Lowered from 0.85 per user request
-      const targetOpacity = isMatch
-        ? (0.5 - dimmingLevel * (0.5 - 0.2))
-        : (0.5 - dimmingLevel * (0.5 - 0.1));
+      // 定义基础透明度：
+      // 正常模式: 0.5 (半透明)
+      // 聊天模式: 0.08 (极淡，几乎隐形，只作为纹理)
+      const normalBaseOpacity = 0.5;
+      const chattingBaseOpacity = 0.08; 
+
+      let targetOpacity = 0;
+
+      if (isChatting) {
+         // 如果在聊天，无论是否匹配，都强制变暗
+         targetOpacity = chattingBaseOpacity;
+      } else {
+         // 原有的闪烁逻辑
+         targetOpacity = isMatch
+          ? (normalBaseOpacity - dimmingLevel * 0.3)
+          : (normalBaseOpacity - dimmingLevel * 0.4);
+      }
 
       const mat = baseTextRef.current.material;
       if (mat) {
@@ -418,8 +432,10 @@ const FunctionNode = React.memo(({
       }
     }
 
-    // 2. Update Highlight Flash
-    if (isMatch && highlightTextRef.current) {
+    /// 如果进入聊天模式，强制关闭高亮层
+    if (isChatting && highlightTextRef.current) {
+        highlightTextRef.current.material.opacity = 0;
+    } else if (isMatch && highlightTextRef.current) {
       const mat = highlightTextRef.current.material;
       if (mat) {
         // Interpolate Color
@@ -646,10 +662,11 @@ const HtmlOverlay: React.FC<{ activeWord: string | null }> = ({ activeWord }) =>
 
 interface CodeRiverProps {
   onMatchFound?: (word: string) => void;
-  onMatchComplete?: () => void; 
+  onMatchComplete?: () => void;
+  isChatting?: boolean;
 }
 
-const CodeRiver: React.FC<CodeRiverProps> = ({ onMatchFound, onMatchComplete }) => {
+const CodeRiver: React.FC<CodeRiverProps> = ({ onMatchFound, onMatchComplete, isChatting = false }) => {
   const baseSpeeds = useMemo(() => [120, 160, 110, 190, 140, 130, 170].slice(0, LANES_COUNT), []);
 
   const { lanesParams, targetWords } = useMemo(() => {
@@ -722,8 +739,13 @@ const CodeRiver: React.FC<CodeRiverProps> = ({ onMatchFound, onMatchComplete }) 
     // User Request: "Keep normal speed" - No acceleration on match.
     // const targetScale = matcher.isPaused ? 2.0 : 0.8;
     // speedScale.current = THREE.MathUtils.lerp(speedScale.current, targetScale, 0.05);
+
+    // 1. Time Update (流动控制)
+    // ✨✨✨ 如果 isChatting，速度直接为 0 (停止流动) ✨✨✨
+    const speedMultiplier = isChatting ? 0 : 1.0; 
+
     speedScale.current = 1.0;
-    timeRef.current.time += delta * speedScale.current;
+    timeRef.current.time += delta * speedScale.current * speedMultiplier;
 
     // 2. Convergence Update
     const targetConvergence = matcher.isPaused ? 1.0 : 0.0;
@@ -808,7 +830,7 @@ const CodeRiver: React.FC<CodeRiverProps> = ({ onMatchFound, onMatchComplete }) 
     }
 
     // 5. Scan Logic
-    if (!matcher.isPaused) {
+    if (!matcher.isPaused && !isChatting) {
       scanTimer.current += delta;
       if (scanTimer.current > 1.0) {
         scanTimer.current = 0;
@@ -850,6 +872,7 @@ const CodeRiver: React.FC<CodeRiverProps> = ({ onMatchFound, onMatchComplete }) 
               isFlashing={isMatch && matcher.isReorderComplete()}
               flashIntensityRef={flashIntensityRef}
               dimmingLevelRef={dimmingLevelRef}
+              isChatting={isChatting}
             />
           );
         })}
