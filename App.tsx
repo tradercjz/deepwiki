@@ -21,6 +21,7 @@ import LogoImage from './assets/Image.svg';
 import { CosmicParticleSystem } from './components/CosmicParticleSystem';
 import { StarWish } from './components/StarWish';
 import { WinterBackground } from './components/Winter/WinterBackground';
+import { CodeRiverBackground } from './components/CodeRiver/CodeRiverBackground';
 
 import { API_BASE_URL } from './config';
 import { CodeWorkbench } from './components/CodeWorkbench';
@@ -126,12 +127,29 @@ const ChatInputFooter: React.FC<{
           ></div>
 
           {/* 输入框主体 */}
-          <div className="relative z-10 bg-white dark:bg-slate-900 border border-gray-200 dark:border-gray-800 rounded-lg shadow-lg flex flex-col">
+          <div className="
+            relative z-10 
+            flex flex-col 
+            rounded-xl 
+            shadow-2xl 
+            transition-all duration-300
+            
+            /* Light Mode: 稍微透一点的白 */
+            bg-white/60 
+            border border-gray-200 
+            
+            /* Dark Mode: 极透黑 + 微弱模糊 + 玻璃边框 */
+            dark:bg-black/30 
+            dark:backdrop-blur-[2px] 
+            dark:border-white/10 
+            dark:shadow-[0_0_15px_rgba(0,0,0,0.5)]
+          ">
             {imageFiles.length > 0 && (
-              <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+              <div className="p-2 border-b border-gray-200/50 dark:border-gray-700/50">
                 <div className="max-h-36 overflow-y-auto space-y-2 pr-2">
                   {imageFiles.map((file, index) => (
-                    <div key={`${file.name}-${index}`} className="flex items-center justify-between bg-gray-100 dark:bg-slate-800 p-1.5 rounded-md">
+                    // 文件卡片保持相对不透明，以便看清文件名
+                    <div key={`${file.name}-${index}`} className="flex items-center justify-between bg-gray-50/80 dark:bg-slate-800/80 p-1.5 rounded-md backdrop-blur-sm">
                       <div className="flex items-center gap-2 overflow-hidden">
                         <img src={URL.createObjectURL(file)} alt={file.name} className="h-10 w-10 object-cover rounded flex-shrink-0" />
                         <span className="text-sm text-gray-600 dark:text-gray-400 truncate" title={file.name}>{file.name}</span>
@@ -154,7 +172,8 @@ const ChatInputFooter: React.FC<{
                   placeholder="Ask a question..." 
                   disabled={isLoading} 
                   rows={1} 
-                  className="w-full py-3 pl-2 text-gray-900 dark:text-white bg-transparent border-none rounded-lg focus:ring-0 focus:outline-none resize-none max-h-48 overflow-y-auto leading-relaxed" 
+                  // 稍微加深文字颜色对比度，因为背景变透明了
+                  className="w-full py-3 pl-2 text-gray-900 dark:text-gray-100 bg-transparent border-none rounded-lg focus:ring-0 focus:outline-none resize-none max-h-48 overflow-y-auto leading-relaxed placeholder-gray-500 dark:placeholder-gray-400" 
               />
               
               <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" multiple />
@@ -766,7 +785,7 @@ function App() {
       <FloatingKeywordsOverlay /> */}
       {/* <CosmicParticleSystem isSlow={isChatting}/> */}
 
-      <WinterBackground isChatting={isChatting} />
+      <CodeRiverBackground isChatting={isChatting} />
       <AuthModal 
         isOpen={isAuthModalOpen} 
         onClose={() => setAuthModalOpen(false)} 

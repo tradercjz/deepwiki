@@ -1,1 +1,1 @@
-export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://test.dolphindb.cn:8007';
+export const API_BASE_URL = process.env.REACT_APP_API_URL || 'https://api.dolphindb.cloud';
